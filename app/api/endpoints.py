@@ -16,7 +16,6 @@ from api.schemas import (
 )
 from db.repository import Repository
 from db.models import User, ConversationType, MessageStatus, FileStatus
-from core.security import verify_password
 from core.config import settings
 from services.kafka_producer import get_kafka_producer
 
@@ -35,7 +34,7 @@ def authenticate(request: TokenRequest, db: Session = Depends(get_db)):
     """
     Authenticate user and return access token.
     
-    Validates user credentials using bcrypt password hashing and creates a new
+    Validates user credentials using plain text password comparison and creates a new
     authentication session with a UUID token. The token should be included in the
     Authorization header (Bearer token) for all subsequent API requests.
     
@@ -78,8 +77,8 @@ def authenticate(request: TokenRequest, db: Session = Depends(get_db)):
             detail="Invalid username or password"
         )
     
-    # Verify password
-    if not verify_password(request.password, user.password_hash):
+    # Verify password (plain text comparison)
+    if request.password != user.password:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password"
