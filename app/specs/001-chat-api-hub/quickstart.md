@@ -32,6 +32,35 @@ This guide will help you set up the complete Chat4All system on your local machi
 3. **Apache Kafka 3.5+**: [kafka.apache.org](https://kafka.apache.org/downloads)
 4. **MinIO**: [min.io](https://min.io/download)
 
+## Important Note for Windows Users
+
+### WMIC Installation Required
+
+**⚠️ IMPORTANT**: Windows 10 version 21H1+ and Windows 11 have WMIC removed by default. You must install it manually before proceeding.
+
+#### Check if WMIC is installed
+
+```powershell
+# Open PowerShell as Administrator and run:
+wmic /?
+```
+
+If you get "command not found", install WMIC using:
+
+```powershell
+# Run as Administrator
+Add-WindowsCapability -Online -Name "WMIC~~~~"
+```
+
+#### Verify installation
+
+```powershell
+wmic os get Caption,Version
+```
+
+Should return your Windows version information.
+
+**Note**: WMIC is used for system monitoring and process verification in the setup scripts.
 ---
 
 ## Step 1: Install Dependencies
