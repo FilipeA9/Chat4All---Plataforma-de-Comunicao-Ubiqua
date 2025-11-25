@@ -3,9 +3,9 @@
 -- Run this script to initialize a new database
 
 -- Create ENUM types
-CREATE TYPE conversation_type AS ENUM ('private', 'group');
-CREATE TYPE message_status AS ENUM ('accepted', 'delivered', 'failed');
-CREATE TYPE file_status AS ENUM ('uploading', 'completed', 'failed');
+CREATE TYPE conversation_type AS ENUM ('PRIVATE', 'GROUP');
+CREATE TYPE message_status AS ENUM ('ACCEPTED', 'PROCESSING', 'DELIVERED', 'FAILED');
+CREATE TYPE file_status AS ENUM ('UPLOADING', 'COMPLETED', 'FAILED');
 
 -- Users table
 CREATE TABLE users (
@@ -50,7 +50,7 @@ CREATE TABLE messages (
     conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
     sender_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     payload JSONB NOT NULL,
-    status message_status NOT NULL DEFAULT 'accepted',
+    status message_status NOT NULL DEFAULT 'ACCEPTED',
     channels TEXT[] NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
