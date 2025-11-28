@@ -45,9 +45,9 @@ class User(Base):
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String(50), unique=True, nullable=False, index=True)
-    password_hash = Column(String(255), nullable=False)
-    full_name = Column(String(100), nullable=False)
+    password = Column(String(100), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
     # Relationships
     conversation_memberships = relationship("ConversationMember", back_populates="user")

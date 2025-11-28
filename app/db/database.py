@@ -51,8 +51,7 @@ def seed_db() -> None:
         for i in range(1, 6):
             user = User(
                 username=f"user{i}",
-                password_hash=hash_password("password123"),
-                full_name=f"Test User {i}"
+                password=hash_password("password123")
             )
             test_users.append(user)
         
