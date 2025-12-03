@@ -1,0 +1,387 @@
+{
+  "dashboard": {
+    "title": "Chat4All - Kafka Monitoring",
+    "description": "Kafka consumer lag, broker health, and topic metrics",
+    "tags": ["chat4all", "kafka", "lag", "broker"],
+    "timezone": "browser",
+    "editable": true,
+    "graphTooltip": 1,
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Consumer Lag by Topic & Partition",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 0, "w": 24, "h": 10},
+        "targets": [
+          {
+            "expr": "kafka_consumer_lag",
+            "legendFormat": "{{consumer_group}} - {{topic}} P{{partition}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "short", "label": "Messages Behind", "logBase": 1},
+          {"format": "short"}
+        ],
+        "alert": {
+          "name": "Critical Kafka Consumer Lag",
+          "conditions": [
+            {
+              "evaluator": {"params": [50000], "type": "gt"},
+              "operator": {"type": "and"},
+              "query": {"params": ["A", "2m", "now"]},
+              "reducer": {"params": [], "type": "max"},
+              "type": "query"
+            }
+          ],
+          "executionErrorState": "alerting",
+          "frequency": "1m",
+          "handler": 1,
+          "message": "CRITICAL: Consumer lag exceeding 50,000 messages",
+          "noDataState": "no_data"
+        }
+      },
+      {
+        "id": 2,
+        "title": "Consumer Lag - Message Router",
+        "type": "gauge",
+        "gridPos": {"x": 0, "y": 10, "w": 6, "h": 6},
+        "targets": [
+          {
+            "expr": "max(kafka_consumer_lag{consumer_group=\"message_router_group\"})",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "showThresholdLabels": true,
+          "showThresholdMarkers": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "min": 0,
+            "max": 100000,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 10000},
+                {"color": "red", "value": 50000}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Consumer Lag - WhatsApp Worker",
+        "type": "gauge",
+        "gridPos": {"x": 6, "y": 10, "w": 6, "h": 6},
+        "targets": [
+          {
+            "expr": "max(kafka_consumer_lag{consumer_group=\"whatsapp_worker_group\"})",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "showThresholdLabels": true,
+          "showThresholdMarkers": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "min": 0,
+            "max": 100000,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 10000},
+                {"color": "red", "value": 50000}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Consumer Lag - Instagram Worker",
+        "type": "gauge",
+        "gridPos": {"x": 12, "y": 10, "w": 6, "h": 6},
+        "targets": [
+          {
+            "expr": "max(kafka_consumer_lag{consumer_group=\"instagram_worker_group\"})",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "showThresholdLabels": true,
+          "showThresholdMarkers": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "min": 0,
+            "max": 100000,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 10000},
+                {"color": "red", "value": 50000}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Max Lag Across All Consumers",
+        "type": "stat",
+        "gridPos": {"x": 18, "y": 10, "w": 6, "h": 6},
+        "targets": [
+          {
+            "expr": "max(kafka_consumer_lag)",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "background",
+          "graphMode": "area",
+          "orientation": "horizontal",
+          "reduceOptions": {
+            "calcs": ["lastNotNull"],
+            "fields": "",
+            "values": false
+          },
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 10000},
+                {"color": "red", "value": 50000}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "Message Production Rate by Topic",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(kafka_messages_produced_total[5m])",
+            "legendFormat": "{{topic}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "ops", "label": "Messages/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Message Consumption Rate by Consumer Group",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(kafka_messages_consumed_total[5m])",
+            "legendFormat": "{{consumer_group}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "ops", "label": "Messages/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Kafka Broker Status",
+        "type": "stat",
+        "gridPos": {"x": 0, "y": 24, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "count(up{job=\"kafka\"})",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "orientation": "horizontal",
+          "reduceOptions": {
+            "calcs": ["lastNotNull"],
+            "fields": "",
+            "values": false
+          },
+          "textMode": "auto"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "green", "value": 1}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 9,
+        "title": "Producer Failed Send Rate",
+        "type": "stat",
+        "gridPos": {"x": 6, "y": 24, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "rate(kafka_producer_failed_sends_total[5m])",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "background",
+          "graphMode": "area",
+          "orientation": "horizontal",
+          "reduceOptions": {
+            "calcs": ["lastNotNull"],
+            "fields": "",
+            "values": false
+          },
+          "textMode": "auto"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 0.1},
+                {"color": "red", "value": 1}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 10,
+        "title": "Consumer Rebalances",
+        "type": "stat",
+        "gridPos": {"x": 12, "y": 24, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "increase(kafka_consumer_rebalance_total[1h])",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "background",
+          "graphMode": "area",
+          "orientation": "horizontal",
+          "reduceOptions": {
+            "calcs": ["lastNotNull"],
+            "fields": "",
+            "values": false
+          },
+          "textMode": "auto"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 5},
+                {"color": "red", "value": 20}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 11,
+        "title": "Topic Partition Count",
+        "type": "table",
+        "gridPos": {"x": 18, "y": 24, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "max by (topic) (kafka_topic_partitions)",
+            "format": "table",
+            "instant": true,
+            "refId": "A"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {"Time": true, "__name__": true},
+              "indexByName": {},
+              "renameByName": {
+                "topic": "Topic",
+                "Value": "Partitions"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 12,
+        "title": "Lag Growth Rate (msg/sec)",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 28, "w": 12, "h": 6},
+        "targets": [
+          {
+            "expr": "rate(kafka_consumer_lag[5m])",
+            "legendFormat": "{{consumer_group}} - {{topic}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "ops", "label": "Lag Change Rate"},
+          {"format": "short"}
+        ],
+        "tooltip": {
+          "shared": true,
+          "sort": 0,
+          "value_type": "individual"
+        }
+      },
+      {
+        "id": 13,
+        "title": "Estimated Time to Catch Up",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 28, "w": 12, "h": 6},
+        "targets": [
+          {
+            "expr": "kafka_consumer_lag / rate(kafka_messages_consumed_total[5m])",
+            "legendFormat": "{{consumer_group}} - {{topic}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "s", "label": "Time to Zero Lag", "logBase": 1},
+          {"format": "short"}
+        ]
+      }
+    ]
+  }
+}

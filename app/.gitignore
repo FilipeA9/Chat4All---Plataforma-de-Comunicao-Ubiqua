@@ -28,6 +28,8 @@ wheels/
 .coverage
 htmlcov/
 .tox/
+*.cover
+.hypothesis/
 
 # IDE
 .vscode/
@@ -35,10 +37,16 @@ htmlcov/
 *.swp
 *.swo
 *~
+*.iml
 
-# Environment
+# Environment & Secrets
 .env
 .env.local
+.env.*.local
+*.pem
+*.key
+*.crt
+secrets/
 
 # Database
 *.db
@@ -47,10 +55,43 @@ htmlcov/
 # MinIO Data
 minio-data/
 
+# Redis Data
+redis-data/
+
 # Logs
 *.log
 logs/
+*.log.*
+
+# Observability
+prometheus-data/
+grafana-data/
+jaeger-data/
+loki-data/
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Kubernetes
+*.kubeconfig
+k8s-secrets.yaml
 
 # OS
 .DS_Store
 Thumbs.db
+*.tmp
+
+# Terraform (if used)
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+
+# Load Testing
+locust-reports/
+
+# Node.js (if frontend added)
+node_modules/
+package-lock.json
+yarn.lock

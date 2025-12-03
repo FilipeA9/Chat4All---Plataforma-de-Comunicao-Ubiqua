@@ -27,9 +27,14 @@ venv/
 env/
 ENV/
 
-# Environment variables
+# Environment variables & Secrets
 .env
-.env.local
+.env.*
+!.env.production
+*.pem
+*.key
+*.crt
+secrets/
 
 # IDE
 .vscode/
@@ -37,18 +42,64 @@ ENV/
 *.swp
 *.swo
 *~
+*.iml
 
 # Testing
 .pytest_cache/
 .coverage
 htmlcov/
+.tox/
+tests/
+test_*.py
+*_test.py
 
 # Logs
 *.log
+logs/
 
 # OS
 .DS_Store
 Thumbs.db
+*.tmp
 
 # Docker
 .dockerignore
+Dockerfile*
+docker-compose*.yml
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation
+README.md
+DOCKER_QUICKSTART.md
+*.md
+docs/
+
+# Specs & Planning
+specs/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+Jenkinsfile
+
+# Data Directories
+postgres_data/
+minio-data/
+redis-data/
+prometheus-data/
+grafana-data/
+jaeger-data/
+loki-data/
+
+# Load Testing
+locust-reports/
+
+# Node.js (if frontend added)
+node_modules/
+package-lock.json
+yarn.lock

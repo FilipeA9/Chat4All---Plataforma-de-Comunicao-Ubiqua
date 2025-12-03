@@ -1,0 +1,226 @@
+---
+# Prometheus Alert Rules for Chat4All Production Platform
+# Purpose: Define alerting conditions for critical system health metrics
+# Integration: Load these rules in Prometheus via prometheus.yml
+
+groups:
+  # Dead Letter Queue Alerts
+  - name: dlq_alerts
+    interval: 30s
+    rules:
+      - alert: DLQMessagesDetected
+        expr: increase(dlq_messages_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: outbox_poller
+          team: platform
+        annotations:
+          summary: "Messages sent to Dead Letter Queue"
+          description: "{{ $value }} messages have been published to DLQ in the last 5 minutes. Aggregate type: {{ $labels.aggregate_type }}, Reason: {{ $labels.reason }}. Manual investigation required."
+          runbook: "https://docs.chat4all.com/runbooks/dlq-investigation"
+          dashboard: "http://grafana:3000/d/message-pipeline"
+      
+      - alert: HighDLQRate
+        expr: rate(dlq_messages_total[15m]) > 10
+        for: 5m
+        labels:
+          severity: critical
+          component: outbox_poller
+          team: platform
+        annotations:
+          summary: "Abnormally high DLQ rate detected"
+          description: "DLQ message rate is {{ $value }} messages/second over the last 15 minutes. This indicates a systemic issue with Kafka or message processing."
+          action: "Check Kafka broker health, review outbox_poller logs, verify network connectivity"
+
+  # Outbox Pattern Alerts
+  - name: outbox_alerts
+    interval: 30s
+    rules:
+      - alert: OutboxEventBacklog
+        expr: outbox_pending_events > 1000
+        for: 5m
+        labels:
+          severity: warning
+          component: outbox_poller
+          team: platform
+        annotations:
+          summary: "Outbox event backlog growing"
+          description: "{{ $value }} unpublished events in outbox_events table. Outbox poller may be falling behind or Kafka may be unavailable."
+          action: "Check outbox_poller worker status, verify Kafka connectivity, consider scaling poller workers"
+      
+      - alert: OutboxEventBacklogCritical
+        expr: outbox_pending_events > 10000
+        for: 2m
+        labels:
+          severity: critical
+          component: outbox_poller
+          team: platform
+        annotations:
+          summary: "CRITICAL: Outbox event backlog exceeding limits"
+          description: "{{ $value }} unpublished events in outbox_events table. System at risk of data loss or severe lag."
+          action: "URGENT: Scale outbox poller horizontally, investigate Kafka cluster health, check for network partitions"
+      
+      - alert: OutboxPublishFailureRate
+        expr: rate(outbox_failed_total[10m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: outbox_poller
+          team: platform
+        annotations:
+          summary: "High outbox event failure rate"
+          description: "{{ $value }} outbox events failing per second. Event type: {{ $labels.event_type }}, Aggregate: {{ $labels.aggregate_type }}"
+          action: "Review outbox_poller error logs, check Kafka broker status, verify topic configurations"
+
+  # Kafka Consumer Lag Alerts
+  - name: kafka_lag_alerts
+    interval: 30s
+    rules:
+      - alert: KafkaConsumerLagHigh
+        expr: kafka_consumer_lag > 10000
+        for: 5m
+        labels:
+          severity: warning
+          component: kafka_consumer
+          team: platform
+        annotations:
+          summary: "Kafka consumer lag exceeding threshold"
+          description: "Consumer group {{ $labels.consumer_group }} has {{ $value }} messages lag on topic {{ $labels.topic }} partition {{ $labels.partition }}"
+          action: "Scale consumer workers, check processing performance, verify consumer health"
+      
+      - alert: KafkaConsumerLagCritical
+        expr: kafka_consumer_lag > 50000
+        for: 2m
+        labels:
+          severity: critical
+          component: kafka_consumer
+          team: platform
+        annotations:
+          summary: "CRITICAL: Kafka consumer lag exceeding critical threshold"
+          description: "Consumer group {{ $labels.consumer_group }} has {{ $value }} messages lag on topic {{ $labels.topic }}. Risk of message expiration or disk exhaustion."
+          action: "URGENT: Scale consumers horizontally, investigate slow processing, check for stuck consumers"
+
+  # Message Processing Alerts
+  - name: message_processing_alerts
+    interval: 30s
+    rules:
+      - alert: MessageProcessingFailureRate
+        expr: rate(messages_processed_total{status="failed"}[10m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: message_worker
+          team: platform
+        annotations:
+          summary: "High message processing failure rate"
+          description: "{{ $value }} messages per second failing in {{ $labels.worker }} worker for {{ $labels.channel }} channel"
+          action: "Review worker logs, check external service availability (file storage, database), verify message payload integrity"
+      
+      - alert: MessageProcessingStalled
+        expr: rate(messages_processed_total[5m]) == 0 and kafka_consumer_lag > 100
+        for: 10m
+        labels:
+          severity: critical
+          component: message_worker
+          team: platform
+        annotations:
+          summary: "Message processing appears stalled"
+          description: "No messages processed in 5 minutes despite {{ $value }} lag. Workers may be stuck or crashed."
+          action: "URGENT: Restart worker pods, check for deadlocks, verify database connectivity"
+
+  # API Performance Alerts
+  - name: api_alerts
+    interval: 30s
+    rules:
+      - alert: APIErrorRateHigh
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          component: api
+          team: platform
+        annotations:
+          summary: "API error rate exceeding 5%"
+          description: "{{ $value | humanizePercentage }} of API requests returning 5xx errors"
+          action: "Check API logs, verify database connectivity, check downstream service health"
+      
+      - alert: APILatencyP99High
+        expr: histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m])) > 2.0
+        for: 10m
+        labels:
+          severity: warning
+          component: api
+          team: platform
+        annotations:
+          summary: "API p99 latency exceeding 2 seconds"
+          description: "99th percentile API latency is {{ $value }}s, target is <200ms"
+          action: "Review slow endpoints, check database query performance, verify Redis connectivity"
+
+  # Database Alerts
+  - name: database_alerts
+    interval: 30s
+    rules:
+      - alert: DatabaseConnectionPoolExhausted
+        expr: db_pool_connections_active / (db_pool_connections_active + db_pool_connections_idle) > 0.9
+        for: 5m
+        labels:
+          severity: critical
+          component: database
+          team: platform
+        annotations:
+          summary: "Database connection pool near exhaustion"
+          description: "{{ $value | humanizePercentage }} of database connections in use"
+          action: "Scale API pods, investigate slow queries, consider increasing pool size"
+      
+      - alert: DatabaseQueryLatencyHigh
+        expr: histogram_quantile(0.95, rate(db_query_duration_seconds_bucket[5m])) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+          component: database
+          team: platform
+        annotations:
+          summary: "Database query p95 latency exceeding 500ms"
+          description: "95th percentile query latency is {{ $value }}s, target is <50ms"
+          action: "Review slow query log, verify index usage, check for missing indexes"
+
+  # System Health Alerts
+  - name: system_health_alerts
+    interval: 30s
+    rules:
+      - alert: PodCPUUsageHigh
+        expr: rate(container_cpu_usage_seconds_total{pod=~"api-.*|worker-.*"}[5m]) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          component: infrastructure
+          team: platform
+        annotations:
+          summary: "Pod CPU usage exceeding 80%"
+          description: "Pod {{ $labels.pod }} CPU usage is {{ $value | humanizePercentage }}"
+          action: "HPA should auto-scale, verify auto-scaling configuration, check for CPU-intensive operations"
+      
+      - alert: PodMemoryUsageHigh
+        expr: container_memory_usage_bytes{pod=~"api-.*|worker-.*"} / container_spec_memory_limit_bytes > 0.85
+        for: 10m
+        labels:
+          severity: warning
+          component: infrastructure
+          team: platform
+        annotations:
+          summary: "Pod memory usage exceeding 85%"
+          description: "Pod {{ $labels.pod }} memory usage is {{ $value | humanizePercentage }} of limit"
+          action: "Check for memory leaks, verify GC performance, consider increasing memory limits"
+
+# Alert Routing Configuration
+# Configure in Alertmanager (alertmanager.yml)
+#
+# Route DLQ alerts to:
+#   - PagerDuty: Critical severity
+#   - Slack #platform-alerts: All severities
+#   - Email platform-oncall@: Critical severity
+#
+# Route high lag alerts to:
+#   - Slack #platform-alerts: Warning severity
+#   - PagerDuty: Critical severity

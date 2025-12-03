@@ -11,48 +11,97 @@ from pydantic import BaseModel, Field, ConfigDict
 # Authentication Schemas
 class TokenRequest(BaseModel):
     """
-    Request schema for authentication.
+    OAuth 2.0 Client Credentials token request.
     
     Attributes:
-        username: User's unique username (1-50 characters)
-        password: User's password (plain text, will be hashed server-side)
+        grant_type: Must be "client_credentials"
+        client_id: User's username (OAuth 2.0 client identifier)
+        client_secret: User's password (OAuth 2.0 client secret)
+        scope: Optional OAuth 2.0 scopes (default: "read write")
         
     Example:
         ```json
         {
-            "username": "user1",
-            "password": "password123"
+            "grant_type": "client_credentials",
+            "client_id": "user1",
+            "client_secret": "password123",
+            "scope": "read write"
         }
         ```
     """
-    username: str = Field(..., min_length=1, max_length=50, description="User's unique username")
-    password: str = Field(..., min_length=1, description="User's password")
+    grant_type: Literal["client_credentials"] = Field(..., description="OAuth 2.0 grant type")
+    client_id: str = Field(..., min_length=1, max_length=50, description="Client identifier (username)")
+    client_secret: str = Field(..., min_length=1, description="Client secret (password)")
+    scope: Optional[str] = Field("read write", description="OAuth 2.0 scopes")
 
 
 class TokenResponse(BaseModel):
     """
-    Response schema for authentication.
+    OAuth 2.0 token response (RFC 6749).
     
     Attributes:
-        token: UUID v4 token for API authentication (include in Authorization header)
-        expires_at: Token expiration timestamp (UTC)
-        user_id: Authenticated user's unique identifier
-        username: Authenticated user's username
+        access_token: JWT access token (15min expiration)
+        refresh_token: Opaque refresh token (30 day expiration)
+        token_type: Always "Bearer"
+        expires_in: Access token lifetime in seconds (900 for 15min)
+        scope: Granted OAuth 2.0 scopes
         
     Example:
         ```json
         {
-            "token": "550e8400-e29b-41d4-a716-446655440000",
-            "expires_at": "2025-11-25T14:30:00Z",
-            "user_id": 1,
-            "username": "user1"
+            "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
+            "refresh_token": "a1b2c3d4e5f6...",
+            "token_type": "Bearer",
+            "expires_in": 900,
+            "scope": "read write"
         }
         ```
     """
-    token: str = Field(..., description="UUID v4 token for API authentication")
-    expires_at: datetime = Field(..., description="Token expiration timestamp (UTC)")
-    user_id: int = Field(..., description="Authenticated user's unique identifier")
-    username: str = Field(..., description="Authenticated user's username")
+    access_token: str = Field(..., description="JWT access token")
+    refresh_token: str = Field(..., description="Opaque refresh token")
+    token_type: str = Field("Bearer", description="Token type")
+    expires_in: int = Field(..., description="Access token lifetime in seconds")
+    scope: str = Field(..., description="Granted OAuth 2.0 scopes")
+
+
+class RefreshTokenRequest(BaseModel):
+    """
+    OAuth 2.0 refresh token request.
+    
+    Attributes:
+        grant_type: Must be "refresh_token"
+        refresh_token: Previously issued refresh token
+        
+    Example:
+        ```json
+        {
+            "grant_type": "refresh_token",
+            "refresh_token": "a1b2c3d4e5f6..."
+        }
+        ```
+    """
+    grant_type: Literal["refresh_token"] = Field(..., description="OAuth 2.0 grant type")
+    refresh_token: str = Field(..., description="Refresh token")
+
+
+class RevokeTokenRequest(BaseModel):
+    """
+    OAuth 2.0 token revocation request (RFC 7009).
+    
+    Attributes:
+        token: Token to revoke (refresh token)
+        token_type_hint: Optional hint about token type ("refresh_token")
+        
+    Example:
+        ```json
+        {
+            "token": "a1b2c3d4e5f6...",
+            "token_type_hint": "refresh_token"
+        }
+        ```
+    """
+    token: str = Field(..., description="Token to revoke")
+    token_type_hint: Optional[str] = Field("refresh_token", description="Token type hint")
 
 
 # Conversation Schemas
@@ -111,6 +160,50 @@ class ConversationResponse(BaseModel):
     member_count: int = Field(..., description="Total number of members")
     
     model_config = ConfigDict(from_attributes=True)
+
+
+class ConversationListItem(BaseModel):
+    """
+    Single conversation item in list response.
+    
+    Attributes:
+        conversation_id: Unique conversation identifier
+        conversation_type: Conversation type ("private" or "group")
+        conversation_name: Conversation name (may be null)
+        description: Conversation description (optional)
+        last_message_timestamp: Timestamp of most recent message (null if no messages)
+        last_message_content: Preview of last message text (truncated to 100 chars)
+        last_message_sender: Username of last message sender
+        unread_count: Number of unread messages for this user
+        conversation_created_at: Timestamp when conversation was created
+    """
+    conversation_id: int = Field(..., description="Conversation identifier")
+    conversation_type: str = Field(..., description="Conversation type")
+    conversation_name: str | None = Field(None, description="Conversation name")
+    description: str | None = Field(None, description="Conversation description")
+    last_message_timestamp: datetime | None = Field(None, description="Last message timestamp")
+    last_message_content: str | None = Field(None, description="Last message preview")
+    last_message_sender: str | None = Field(None, description="Last message sender username")
+    unread_count: int = Field(0, description="Unread message count")
+    conversation_created_at: datetime = Field(..., description="Conversation creation timestamp")
+
+
+class ConversationListResponse(BaseModel):
+    """
+    Response schema for conversation list with pagination.
+    
+    Attributes:
+        items: List of conversations
+        total: Total number of conversations for this user
+        limit: Maximum items per page
+        offset: Number of items skipped
+        has_more: Whether more items are available
+    """
+    items: List[ConversationListItem] = Field(..., description="Conversation items")
+    total: int = Field(..., description="Total conversation count")
+    limit: int = Field(..., description="Items per page")
+    offset: int = Field(..., description="Items skipped")
+    has_more: bool = Field(..., description="Whether more pages available")
 
 
 # Message Schemas
@@ -225,62 +318,106 @@ class MessageListResponse(BaseModel):
     offset: int
 
 
-# File Upload Schemas
+# File Upload Schemas (Chunked)
 class FileInitiateRequest(BaseModel):
     """
-    Request schema for initiating file upload.
+    Request schema for initiating chunked file upload.
     
     Attributes:
+        conversation_id: UUID of conversation where file will be shared
         filename: Original filename (1-255 characters)
-        size_bytes: File size in bytes (maximum 2GB = 2,147,483,648 bytes)
+        file_size: File size in bytes (maximum 2GB = 2,147,483,648 bytes)
         mime_type: File MIME type (e.g., "image/png", "application/pdf")
+        checksum_sha256: Optional SHA-256 checksum of complete file for integrity verification
+        chunk_size: Optional chunk size in bytes (1MB-50MB, recommended 5-10MB)
         
     Example:
         ```json
         {
-            "filename": "presentation.pdf",
-            "size_bytes": 5242880,
-            "mime_type": "application/pdf"
+            "conversation_id": 123,
+            "filename": "vacation_video.mp4",
+            "file_size": 1073741824,
+            "mime_type": "video/mp4",
+            "checksum_sha256": "abc123def456...",
+            "chunk_size": 5242880
         }
         ```
     """
+    conversation_id: int = Field(..., description="Conversation ID where file will be shared")
     filename: str = Field(..., min_length=1, max_length=255, description="Original filename")
-    size_bytes: int = Field(..., gt=0, le=2_147_483_648, description="File size in bytes (max 2GB)")
+    file_size: int = Field(..., gt=0, le=2_147_483_648, description="File size in bytes (max 2GB)")
     mime_type: str = Field(..., max_length=100, description="File MIME type")
+    checksum_sha256: str | None = Field(None, min_length=64, max_length=64, description="SHA-256 checksum (optional)")
+    chunk_size: int | None = Field(
+        10_485_760,  # 10MB default
+        ge=1_048_576,  # 1MB minimum
+        le=52_428_800,  # 50MB maximum
+        description="Chunk size in bytes (1MB-50MB)"
+    )
 
 
 class FileInitiateResponse(BaseModel):
     """
-    Response schema for file upload initiation.
+    Response schema for chunked file upload initiation.
     
     Attributes:
-        file_id: Generated file UUID (use this in POST /v1/files/complete)
-        upload_url: Presigned URL for direct upload to MinIO (PUT request)
-        expires_at: Presigned URL expiration time (valid for 1 hour)
+        upload_id: Upload session UUID (use in subsequent chunk uploads)
+        total_chunks: Total number of chunks to upload
+        chunk_size: Chunk size in bytes (all chunks except last)
+        expires_at: Upload session expiration (24 hours from creation)
     """
-    file_id: UUID = Field(..., description="Generated file UUID")
-    upload_url: str = Field(..., description="Presigned URL for direct upload (PUT request)")
-    expires_at: datetime = Field(..., description="URL expiration timestamp (UTC)")
+    upload_id: UUID = Field(..., description="Upload session UUID")
+    total_chunks: int = Field(..., description="Total number of chunks to upload")
+    chunk_size: int = Field(..., description="Chunk size in bytes")
+    expires_at: datetime = Field(..., description="Upload session expiration timestamp")
 
 
-class FileCompleteRequest(BaseModel):
+class FileChunkUploadResponse(BaseModel):
     """
-    Request schema for completing file upload.
+    Response schema for chunk upload.
     
     Attributes:
-        file_id: UUID of the file (from POST /v1/files/initiate)
-        checksum: SHA-256 checksum of uploaded file (64 hex characters for verification)
-        
-    Example:
-        ```json
-        {
-            "file_id": "550e8400-e29b-41d4-a716-446655440000",
-            "checksum": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        }
-        ```
+        upload_id: Upload session UUID
+        chunk_number: Chunk number just uploaded
+        uploaded_chunks: Total count of uploaded chunks
+        total_chunks: Total number of chunks
+        percentage: Upload progress percentage (0-100)
     """
-    file_id: UUID = Field(..., description="File UUID from initiate response")
-    checksum: str = Field(..., min_length=64, max_length=64, description="SHA-256 checksum (64 hex characters)")
+    upload_id: UUID = Field(..., description="Upload session UUID")
+    chunk_number: int = Field(..., description="Chunk number just uploaded")
+    uploaded_chunks: int = Field(..., description="Count of uploaded chunks")
+    total_chunks: int = Field(..., description="Total number of chunks")
+    percentage: float = Field(..., description="Upload progress percentage")
+
+
+class FileStatusResponse(BaseModel):
+    """
+    Response schema for upload status query.
+    
+    Attributes:
+        upload_id: Upload session UUID
+        status: Upload status (pending/uploading/merging/completed/failed)
+        uploaded_chunks: Count of uploaded chunks
+        total_chunks: Total number of chunks
+        percentage: Upload progress percentage
+        missing_chunks: List of chunk numbers not yet uploaded (optional)
+        file_id: Final file UUID (only when status=completed)
+        download_url: Download URL (only when status=completed)
+        created_at: Upload session creation timestamp
+        expires_at: Upload session expiration timestamp
+        completed_at: Upload completion timestamp (only when status=completed)
+    """
+    upload_id: UUID = Field(..., description="Upload session UUID")
+    status: str = Field(..., description="Upload status")
+    uploaded_chunks: int = Field(..., description="Count of uploaded chunks")
+    total_chunks: int = Field(..., description="Total number of chunks")
+    percentage: float = Field(..., description="Upload progress percentage")
+    missing_chunks: List[int] | None = Field(None, description="Missing chunk numbers")
+    file_id: UUID | None = Field(None, description="Final file UUID (when completed)")
+    download_url: str | None = Field(None, description="Download URL (when completed)")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    expires_at: datetime | None = Field(None, description="Expiration timestamp")
+    completed_at: datetime | None = Field(None, description="Completion timestamp")
 
 
 class FileCompleteResponse(BaseModel):
@@ -288,17 +425,87 @@ class FileCompleteResponse(BaseModel):
     Response schema for file upload completion.
     
     Attributes:
-        file_id: Completed file UUID (use in message payload)
-        filename: Original filename
-        size_bytes: File size in bytes
-        status: File status (should be "completed")
-        download_url: Presigned URL for downloading file (valid for 24 hours)
+        upload_id: Upload session UUID
+        status: Upload status (merging/completed/failed)
+        message: Human-readable status message
+        estimated_completion: Estimated merge completion time
     """
-    file_id: UUID = Field(..., description="Completed file UUID")
-    filename: str = Field(..., description="Original filename")
-    size_bytes: int = Field(..., description="File size in bytes")
-    status: str = Field(..., description="File status (completed)")
-    download_url: str = Field(..., description="Presigned download URL (valid 24h)")
+    upload_id: UUID = Field(..., description="Upload session UUID")
+    status: str = Field(..., description="Upload status after completion")
+    message: str = Field(..., description="Status message")
+    estimated_completion: datetime | None = Field(None, description="Estimated completion time")
+
+
+# WebSocket Message Schemas
+class WSMessageCreated(BaseModel):
+    """WebSocket event: New message created."""
+    type: str = Field(default="message.created", description="Event type")
+    message_id: str = Field(..., description="Message UUID")
+    conversation_id: int = Field(..., description="Conversation ID")
+    sender_id: int = Field(..., description="Sender user ID")
+    sender_username: str = Field(..., description="Sender username")
+    payload: dict = Field(..., description="Message payload (text or file)")
+    channels: List[str] = Field(..., description="Target channels")
+    created_at: datetime = Field(..., description="Message creation timestamp")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Event timestamp")
+
+
+class WSMessageDelivered(BaseModel):
+    """WebSocket event: Message delivered to channel."""
+    type: str = Field(default="message.delivered", description="Event type")
+    message_id: str = Field(..., description="Message UUID")
+    conversation_id: int = Field(..., description="Conversation ID")
+    channel: str = Field(..., description="Channel that received the message")
+    delivered_at: datetime = Field(..., description="Delivery timestamp")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Event timestamp")
+
+
+class WSMessageRead(BaseModel):
+    """WebSocket event: Message marked as read."""
+    type: str = Field(default="message.read", description="Event type")
+    message_id: str = Field(..., description="Message UUID")
+    conversation_id: int = Field(..., description="Conversation ID")
+    user_id: int = Field(..., description="User who read the message")
+    username: str = Field(..., description="Username who read the message")
+    read_at: datetime = Field(..., description="Read timestamp")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Event timestamp")
+
+
+class WSConversationRead(BaseModel):
+    """WebSocket event: All messages in conversation marked as read."""
+    type: str = Field(default="conversation.read", description="Event type")
+    conversation_id: int = Field(..., description="Conversation ID")
+    user_id: int = Field(..., description="User who read the conversation")
+    username: str = Field(..., description="Username who read the conversation")
+    message_count: int = Field(..., description="Number of messages marked as read")
+    read_at: datetime = Field(..., description="Read timestamp")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Event timestamp")
+
+
+class WSHeartbeat(BaseModel):
+    """WebSocket event: Heartbeat ping/pong."""
+    type: str = Field(..., description="Event type (ping or pong)")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Event timestamp")
+
+
+class WSError(BaseModel):
+    """WebSocket event: Error notification."""
+    type: str = Field(default="error", description="Event type")
+    error: str = Field(..., description="Error message")
+    code: Optional[str] = Field(None, description="Error code")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Event timestamp")
+
+
+class WSSubscribe(BaseModel):
+    """WebSocket command: Subscribe to conversation."""
+    action: str = Field(default="subscribe", description="Action type")
+    conversation_id: int = Field(..., description="Conversation ID to subscribe to")
+
+
+class WSUnsubscribe(BaseModel):
+    """WebSocket command: Unsubscribe from conversation."""
+    action: str = Field(default="unsubscribe", description="Action type")
+    conversation_id: int = Field(..., description="Conversation ID to unsubscribe from")
 
 
 # Error Schemas

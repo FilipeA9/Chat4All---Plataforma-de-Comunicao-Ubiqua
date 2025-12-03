@@ -62,12 +62,34 @@ description: "Task list template for feature implementation"
 
 Examples of foundational tasks (adjust based on your project):
 
-- [ ] T004 Setup database schema and migrations framework
-- [ ] T005 [P] Implement authentication/authorization framework
-- [ ] T006 [P] Setup API routing and middleware structure
-- [ ] T007 Create base models/entities that all stories depend on
-- [ ] T008 Configure error handling and logging infrastructure
-- [ ] T009 Setup environment configuration management
+### Reliability & Resilience (Principle II)
+- [ ] T004 Setup database schema with replication (factor ≥3)
+- [ ] T005 [P] Implement idempotency middleware (deduplication window ≥24h)
+- [ ] T006 [P] Configure circuit breakers for external services
+- [ ] T007 Setup automatic failover for critical components
+
+### Scalability & Performance (Principle III)
+- [ ] T008 [P] Configure Kafka topics with partitioning (100+ partitions)
+- [ ] T009 [P] Setup stateless API services (horizontal scaling)
+- [ ] T010 Implement connection pooling and query optimization (<50ms p95)
+
+### Security & Privacy (Principle VI)
+- [ ] T011 [P] Implement OAuth 2.0 authentication framework
+- [ ] T012 [P] Setup TLS 1.3 for all endpoints
+- [ ] T013 Configure rate limiting (100 req/min per user)
+- [ ] T014 [P] Implement audit logging for security events
+
+### Observability (Principle VII)
+- [ ] T015 [P] Setup Prometheus metrics exporters for all services
+- [ ] T016 [P] Implement OpenTelemetry tracing across service boundaries
+- [ ] T017 [P] Configure centralized logging (ELK/Loki) with correlation IDs
+- [ ] T018 [P] Create health check endpoints (/health, /ready)
+- [ ] T019 Setup monitoring dashboards and SLA alerts
+
+### Core Infrastructure
+- [ ] T020 Create base domain entities (Message, Conversation, User)
+- [ ] T021 Define port interfaces (IMessageStore, IConnector)
+- [ ] T022 Setup environment configuration management
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 

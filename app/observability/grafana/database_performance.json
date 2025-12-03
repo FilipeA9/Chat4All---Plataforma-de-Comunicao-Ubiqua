@@ -1,0 +1,495 @@
+{
+  "dashboard": {
+    "title": "Chat4All - Database Performance",
+    "description": "PostgreSQL connection pool, query performance, and database health metrics",
+    "tags": ["chat4all", "database", "postgresql", "performance"],
+    "timezone": "browser",
+    "editable": true,
+    "graphTooltip": 1,
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Connection Pool Status",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "db_pool_connections_active{service=\"chat4all-api\"}",
+            "legendFormat": "Active Connections",
+            "refId": "A"
+          },
+          {
+            "expr": "db_pool_connections_idle{service=\"chat4all-api\"}",
+            "legendFormat": "Idle Connections",
+            "refId": "B"
+          },
+          {
+            "expr": "db_pool_connections_total{service=\"chat4all-api\"}",
+            "legendFormat": "Total Pool Size",
+            "refId": "C"
+          }
+        ],
+        "yaxes": [
+          {"format": "short", "label": "Connections"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Connection Pool Utilization (%)",
+        "type": "gauge",
+        "gridPos": {"x": 12, "y": 0, "w": 6, "h": 8},
+        "targets": [
+          {
+            "expr": "100 * db_pool_connections_active{service=\"chat4all-api\"} / (db_pool_connections_active{service=\"chat4all-api\"} + db_pool_connections_idle{service=\"chat4all-api\"})",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "showThresholdLabels": true,
+          "showThresholdMarkers": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 70},
+                {"color": "orange", "value": 85},
+                {"color": "red", "value": 95}
+              ]
+            }
+          }
+        },
+        "alert": {
+          "name": "High DB Connection Pool Utilization",
+          "conditions": [
+            {
+              "evaluator": {"params": [90], "type": "gt"},
+              "operator": {"type": "and"},
+              "query": {"params": ["A", "5m", "now"]},
+              "reducer": {"params": [], "type": "avg"},
+              "type": "query"
+            }
+          ],
+          "executionErrorState": "alerting",
+          "frequency": "1m",
+          "handler": 1,
+          "message": "Database connection pool utilization above 90%",
+          "noDataState": "no_data"
+        }
+      },
+      {
+        "id": 3,
+        "title": "Pool Overflow Events",
+        "type": "stat",
+        "gridPos": {"x": 18, "y": 0, "w": 6, "h": 8},
+        "targets": [
+          {
+            "expr": "increase(db_pool_overflows_total{service=\"chat4all-api\"}[1h])",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "background",
+          "graphMode": "area",
+          "orientation": "horizontal",
+          "reduceOptions": {
+            "calcs": ["lastNotNull"],
+            "fields": "",
+            "values": false
+          },
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 10},
+                {"color": "red", "value": 100}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Query Execution Time (P50, P95, P99)",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(db_query_duration_seconds_bucket{service=\"chat4all-api\"}[5m]))",
+            "legendFormat": "P50",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(db_query_duration_seconds_bucket{service=\"chat4all-api\"}[5m]))",
+            "legendFormat": "P95",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(db_query_duration_seconds_bucket{service=\"chat4all-api\"}[5m]))",
+            "legendFormat": "P99",
+            "refId": "C"
+          }
+        ],
+        "yaxes": [
+          {"format": "s", "label": "Query Time", "logBase": 1},
+          {"format": "short"}
+        ],
+        "alert": {
+          "name": "High Database Query Latency",
+          "conditions": [
+            {
+              "evaluator": {"params": [0.5], "type": "gt"},
+              "operator": {"type": "and"},
+              "query": {"params": ["B", "10m", "now"]},
+              "reducer": {"params": [], "type": "avg"},
+              "type": "query"
+            }
+          ],
+          "executionErrorState": "alerting",
+          "frequency": "1m",
+          "handler": 1,
+          "message": "Database P95 query latency exceeding 500ms",
+          "noDataState": "no_data"
+        }
+      },
+      {
+        "id": 5,
+        "title": "Query Rate (queries/sec)",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(db_queries_total{service=\"chat4all-api\"}[5m])",
+            "legendFormat": "{{operation}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "ops", "label": "Queries/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Transaction Duration (P95)",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 16, "w": 12, "h": 6},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(db_transaction_duration_seconds_bucket{service=\"chat4all-api\"}[5m]))",
+            "legendFormat": "P95 Transaction Time",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "s", "label": "Transaction Time"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Database Errors",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 16, "w": 12, "h": 6},
+        "targets": [
+          {
+            "expr": "rate(db_errors_total{service=\"chat4all-api\"}[5m])",
+            "legendFormat": "{{error_type}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "ops", "label": "Errors/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Table Statistics - Messages",
+        "type": "table",
+        "gridPos": {"x": 0, "y": 22, "w": 8, "h": 6},
+        "targets": [
+          {
+            "expr": "pg_stat_user_tables_n_tup_ins{relname=\"messages\"}",
+            "format": "table",
+            "instant": true,
+            "refId": "A"
+          },
+          {
+            "expr": "pg_stat_user_tables_n_tup_upd{relname=\"messages\"}",
+            "format": "table",
+            "instant": true,
+            "refId": "B"
+          },
+          {
+            "expr": "pg_stat_user_tables_n_tup_del{relname=\"messages\"}",
+            "format": "table",
+            "instant": true,
+            "refId": "C"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "merge",
+            "options": {}
+          },
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {"Time": true, "instance": true, "job": true, "__name__": true},
+              "indexByName": {},
+              "renameByName": {
+                "Value #A": "Inserts",
+                "Value #B": "Updates",
+                "Value #C": "Deletes"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Table Statistics - Outbox Events",
+        "type": "table",
+        "gridPos": {"x": 8, "y": 22, "w": 8, "h": 6},
+        "targets": [
+          {
+            "expr": "pg_stat_user_tables_n_tup_ins{relname=\"outbox_events\"}",
+            "format": "table",
+            "instant": true,
+            "refId": "A"
+          },
+          {
+            "expr": "pg_stat_user_tables_n_tup_upd{relname=\"outbox_events\"}",
+            "format": "table",
+            "instant": true,
+            "refId": "B"
+          },
+          {
+            "expr": "pg_stat_user_tables_n_tup_del{relname=\"outbox_events\"}",
+            "format": "table",
+            "instant": true,
+            "refId": "C"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "merge",
+            "options": {}
+          },
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {"Time": true, "instance": true, "job": true, "__name__": true},
+              "indexByName": {},
+              "renameByName": {
+                "Value #A": "Inserts",
+                "Value #B": "Updates",
+                "Value #C": "Deletes"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Database Size Growth",
+        "type": "graph",
+        "gridPos": {"x": 16, "y": 22, "w": 8, "h": 6},
+        "targets": [
+          {
+            "expr": "pg_database_size_bytes{datname=\"chat4all\"}",
+            "legendFormat": "Database Size",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "bytes", "label": "Size", "logBase": 1},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 11,
+        "title": "Active Queries",
+        "type": "stat",
+        "gridPos": {"x": 0, "y": 28, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "pg_stat_activity_count",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "background",
+          "graphMode": "area",
+          "orientation": "horizontal",
+          "reduceOptions": {
+            "calcs": ["lastNotNull"],
+            "fields": "",
+            "values": false
+          },
+          "textMode": "auto"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 50},
+                {"color": "red", "value": 100}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 12,
+        "title": "Long-Running Queries (>5s)",
+        "type": "stat",
+        "gridPos": {"x": 6, "y": 28, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "pg_stat_activity_max_tx_duration{datname=\"chat4all\"} > 5",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "orientation": "horizontal",
+          "reduceOptions": {
+            "calcs": ["lastNotNull"],
+            "fields": "",
+            "values": false
+          },
+          "textMode": "auto"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 5},
+                {"color": "red", "value": 30}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 13,
+        "title": "Deadlocks Detected",
+        "type": "stat",
+        "gridPos": {"x": 12, "y": 28, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "increase(pg_stat_database_deadlocks{datname=\"chat4all\"}[1h])",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "background",
+          "graphMode": "area",
+          "orientation": "horizontal",
+          "reduceOptions": {
+            "calcs": ["lastNotNull"],
+            "fields": "",
+            "values": false
+          },
+          "textMode": "auto"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 1},
+                {"color": "red", "value": 5}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 14,
+        "title": "Cache Hit Ratio (%)",
+        "type": "gauge",
+        "gridPos": {"x": 18, "y": 28, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "100 * (sum(pg_stat_database_blks_hit{datname=\"chat4all\"}) / (sum(pg_stat_database_blks_hit{datname=\"chat4all\"}) + sum(pg_stat_database_blks_read{datname=\"chat4all\"})))",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 90},
+                {"color": "green", "value": 95}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 15,
+        "title": "Top 5 Slowest Queries",
+        "type": "table",
+        "gridPos": {"x": 0, "y": 32, "w": 24, "h": 6},
+        "targets": [
+          {
+            "expr": "topk(5, max by (query_hash) (rate(db_query_duration_seconds_sum{service=\"chat4all-api\"}[5m]) / rate(db_query_duration_seconds_count{service=\"chat4all-api\"}[5m])))",
+            "format": "table",
+            "instant": true,
+            "refId": "A"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {"Time": true, "__name__": true, "instance": true, "job": true},
+              "indexByName": {},
+              "renameByName": {
+                "query_hash": "Query Hash",
+                "Value": "Avg Duration (s)"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

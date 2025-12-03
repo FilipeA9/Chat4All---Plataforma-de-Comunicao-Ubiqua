@@ -8,7 +8,8 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 from db.models import (
     User, Conversation, ConversationMember, Message, MessageStatusHistory,
-    FileMetadata, FileChunk, AuthSession, ConversationType, MessageStatus, FileStatus
+    FileMetadata, FileChunk, AuthSession, ConversationType, MessageStatus, FileStatus,
+    OutboxEvent
 )
 from core.config import settings
 
@@ -158,6 +159,31 @@ class Repository:
             self.db.refresh(message)
         return message
     
+    def mark_conversation_as_read(self, conversation_id: int, user_id: int) -> int:
+        """
+        Mark all messages in a conversation as READ for a specific user.
+        
+        Args:
+            conversation_id: Conversation ID
+            user_id: User ID marking messages as read
+            
+        Returns:
+            Number of messages marked as read
+        """
+        # Update all messages in the conversation to READ status
+        # In a full implementation, this would update a separate read_receipts table
+        # For now, we'll update the message status field
+        updated_count = self.db.query(Message).filter(
+            Message.conversation_id == conversation_id,
+            Message.status != MessageStatus.READ
+        ).update({
+            'status': MessageStatus.READ,
+            'updated_at': datetime.utcnow()
+        }, synchronize_session=False)
+        
+        self.db.commit()
+        return updated_count
+    
     # File operations
     def create_file_metadata(
         self,
@@ -252,3 +278,102 @@ class Repository:
         if session:
             session.is_active = False
             self.db.commit()
+    
+    # Outbox operations (Transactional Outbox pattern)
+    def create_outbox_event(
+        self,
+        aggregate_type: str,
+        aggregate_id: UUID,
+        event_type: str,
+        payload: dict
+    ) -> OutboxEvent:
+        """
+        Create outbox event for reliable Kafka publishing.
+        
+        This method is called within the same transaction as domain entity creation
+        (e.g., message creation) to implement the Transactional Outbox pattern.
+        The OutboxPoller worker will poll unpublished events and publish to Kafka.
+        
+        Args:
+            aggregate_type: Type of domain entity ('message', 'conversation', 'file')
+            aggregate_id: UUID of the domain entity
+            event_type: Event type (e.g., 'message.created', 'file.uploaded')
+            payload: Complete event data as dict (will be stored as JSONB)
+            
+        Returns:
+            OutboxEvent: Created outbox event (not yet published)
+        """
+        outbox_event = OutboxEvent(
+            aggregate_type=aggregate_type,
+            aggregate_id=aggregate_id,
+            event_type=event_type,
+            payload=payload,
+            published=False,
+            version=1
+        )
+        self.db.add(outbox_event)
+        # Note: Do NOT commit here - let the caller control transaction boundary
+        return outbox_event
+    
+    def get_unpublished_outbox_events(self, limit: int = 100) -> List[OutboxEvent]:
+        """
+        Get unpublished outbox events for polling.
+        
+        Used by OutboxPoller worker to fetch events that need to be published to Kafka.
+        Orders by created_at to ensure FIFO processing.
+        
+        Args:
+            limit: Maximum number of events to fetch per poll
+            
+        Returns:
+            List of unpublished outbox events
+        """
+        return self.db.query(OutboxEvent).filter(
+            OutboxEvent.published == False
+        ).order_by(OutboxEvent.created_at).limit(limit).all()
+    
+    def mark_outbox_event_published(self, event_id: UUID) -> Optional[OutboxEvent]:
+        """
+        Mark outbox event as successfully published to Kafka.
+        
+        Called by OutboxPoller worker after successful Kafka publish.
+        
+        Args:
+            event_id: UUID of the outbox event
+            
+        Returns:
+            Updated outbox event or None if not found
+        """
+        event = self.db.query(OutboxEvent).filter(OutboxEvent.id == event_id).first()
+        if event:
+            event.published = True
+            event.published_at = datetime.utcnow()
+            event.error_message = None  # Clear any previous error
+            self.db.commit()
+            self.db.refresh(event)
+        return event
+    
+    def mark_outbox_event_failed(
+        self, 
+        event_id: UUID, 
+        error_message: str
+    ) -> Optional[OutboxEvent]:
+        """
+        Mark outbox event as failed after retry exhaustion.
+        
+        Increments version counter for exponential backoff and stores error message.
+        
+        Args:
+            event_id: UUID of the outbox event
+            error_message: Error description from Kafka publish attempt
+            
+        Returns:
+            Updated outbox event or None if not found
+        """
+        event = self.db.query(OutboxEvent).filter(OutboxEvent.id == event_id).first()
+        if event:
+            event.version += 1
+            event.error_message = error_message
+            self.db.commit()
+            self.db.refresh(event)
+        return event

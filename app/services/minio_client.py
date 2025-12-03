@@ -136,6 +136,98 @@ class MinIOClient:
             True if object exists, False otherwise
         """
         return self.stat_object(object_name) is not None
+    
+    def put_object(self, object_name: str, data, length: int, content_type: str = "application/octet-stream"):
+        """
+        Upload an object to MinIO.
+        
+        Args:
+            object_name: Name/path of the object in MinIO
+            data: File-like object or bytes to upload
+            length: Size of the data in bytes
+            content_type: MIME type of the object
+            
+        Returns:
+            True if upload successful
+        """
+        try:
+            self.client.put_object(
+                settings.minio_bucket,
+                object_name,
+                data,
+                length,
+                content_type=content_type
+            )
+            logger.info(f"Uploaded object: {object_name} ({length} bytes)")
+            return True
+        except S3Error as e:
+            logger.error(f"Failed to upload object: {e}")
+            raise
+    
+    def compose_objects(self, destination_object: str, source_objects: list[str]) -> bool:
+        """
+        Compose multiple objects into a single object using MinIO server-side merge.
+        
+        This performs a server-side copy and concatenation of multiple objects
+        without downloading/uploading data, which is much more efficient for large files.
+        
+        Args:
+            destination_object: Name/path of the destination object
+            source_objects: List of source object names to merge (in order)
+            
+        Returns:
+            True if composition successful
+            
+        Raises:
+            S3Error: If any source object doesn't exist or composition fails
+        """
+        try:
+            from minio.commonconfig import ComposeSource
+            
+            # Create ComposeSource objects for each chunk
+            sources = [
+                ComposeSource(settings.minio_bucket, obj)
+                for obj in source_objects
+            ]
+            
+            # Compose objects into destination
+            self.client.compose_object(
+                settings.minio_bucket,
+                destination_object,
+                sources
+            )
+            
+            logger.info(
+                f"Composed {len(source_objects)} objects into {destination_object}"
+            )
+            return True
+            
+        except S3Error as e:
+            logger.error(f"Failed to compose objects: {e}")
+            raise
+    
+    def list_objects(self, prefix: str) -> list[str]:
+        """
+        List objects with a given prefix.
+        
+        Args:
+            prefix: Object name prefix to filter by
+            
+        Returns:
+            List of object names matching the prefix
+        """
+        try:
+            objects = self.client.list_objects(
+                settings.minio_bucket,
+                prefix=prefix,
+                recursive=True
+            )
+            object_names = [obj.object_name for obj in objects]
+            logger.info(f"Found {len(object_names)} objects with prefix: {prefix}")
+            return object_names
+        except S3Error as e:
+            logger.error(f"Failed to list objects: {e}")
+            raise
 
 
 # Global MinIO client instance (initialized on first use)

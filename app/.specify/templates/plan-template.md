@@ -31,7 +31,48 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+**Principle I - Ubiquity and Interoperability**:
+- [ ] Does this feature maintain API contract stability across channels?
+- [ ] Are channel-specific details properly abstracted?
+- [ ] Can new channels integrate without breaking changes?
+
+**Principle II - Reliability and Resilience**:
+- [ ] Does this feature guarantee at-least-once message delivery?
+- [ ] Are all operations idempotent?
+- [ ] Is failure recovery explicitly designed (circuit breakers, retries)?
+- [ ] Does this maintain ≥99.95% availability SLA?
+
+**Principle III - Scalability and Performance**:
+- [ ] Can this scale horizontally (stateless services)?
+- [ ] Are performance targets met (<200ms p99 API latency)?
+- [ ] Does database design support required throughput (10M msg/min)?
+- [ ] Is load shedding/graceful degradation considered?
+
+**Principle IV - Consistency and Order**:
+- [ ] Is causal message ordering preserved within conversations?
+- [ ] Are idempotency keys used for deduplication?
+- [ ] Is conflict resolution for eventual consistency defined?
+
+**Principle V - Extensibility and Maintainability**:
+- [ ] Is architecture modular (core platform vs connectors)?
+- [ ] Are interfaces well-defined for new channel integrations?
+- [ ] Is clean architecture followed (dependency inversion)?
+- [ ] Is documentation complete (architecture diagrams, API specs, runbooks)?
+
+**Principle VI - Security and Privacy**:
+- [ ] Is TLS 1.3+ enforced for all communication?
+- [ ] Is authentication/authorization implemented (OAuth 2.0)?
+- [ ] Are passwords hashed with bcrypt/Argon2?
+- [ ] Is rate limiting enforced (per-user and global)?
+- [ ] Is input validation comprehensive (Pydantic/Protobuf)?
+- [ ] Is audit logging implemented for security events?
+
+**Principle VII - Observability**:
+- [ ] Are Prometheus metrics exposed for all services?
+- [ ] Is OpenTelemetry tracing implemented across service boundaries?
+- [ ] Are structured logs (JSON) with correlation IDs used?
+- [ ] Are health check endpoints (/health, /ready) exposed?
+- [ ] Are dashboards and alerts configured for SLA monitoring?
 
 ## Project Structure
 

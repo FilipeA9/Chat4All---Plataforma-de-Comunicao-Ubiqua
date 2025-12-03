@@ -95,6 +95,32 @@
 - **FR-006**: System MUST authenticate users via [NEEDS CLARIFICATION: auth method not specified - email/password, SSO, OAuth?]
 - **FR-007**: System MUST retain user data for [NEEDS CLARIFICATION: retention period not specified]
 
+### Non-Functional Requirements (Constitution-Driven)
+
+**Reliability** (Principle II):
+- **NFR-001**: System MUST guarantee at-least-once message delivery
+- **NFR-002**: System MUST maintain ≥99.95% availability (SLA)
+- **NFR-003**: All operations MUST be idempotent
+
+**Performance** (Principle III):
+- **NFR-004**: API latency MUST be <200ms p99 (ingestion to queue)
+- **NFR-005**: System MUST support 10M messages/minute (peak throughput)
+- **NFR-006**: Database queries MUST complete <50ms p95
+
+**Scalability** (Principle III):
+- **NFR-007**: All services MUST be horizontally scalable (stateless)
+- **NFR-008**: System MUST support millions of concurrent users
+
+**Security** (Principle VI):
+- **NFR-009**: All communication MUST use TLS 1.3+
+- **NFR-010**: API MUST enforce authentication (OAuth 2.0 or API keys)
+- **NFR-011**: Rate limiting MUST be enforced (100 req/min per user)
+
+**Observability** (Principle VII):
+- **NFR-012**: All services MUST expose Prometheus metrics
+- **NFR-013**: Distributed tracing MUST be implemented (OpenTelemetry)
+- **NFR-014**: Centralized logging MUST use structured JSON with correlation IDs
+
 ### Key Entities *(include if feature involves data)*
 
 - **[Entity 1]**: [What it represents, key attributes without implementation]
