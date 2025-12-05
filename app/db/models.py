@@ -1,7 +1,8 @@
 """
 SQLAlchemy ORM models for Chat4All database.
 Defines all entities: User, Conversation, ConversationMember, Message,
-MessageStatusHistory, FileMetadata, FileChunk, AuthSession.
+MessageStatusHistory, File, FileChunkModel, OutboxEvent, WebSocketConnection,
+AccessToken, RefreshToken, AuthSession.
 """
 import enum
 import uuid
@@ -120,39 +121,41 @@ class MessageStatusHistory(Base):
     message = relationship("Message", back_populates="status_history")
 
 
-class FileMetadata(Base):
-    """Metadata for uploaded files stored in MinIO."""
-    __tablename__ = "file_metadata"
-    
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    filename = Column(String(255), nullable=False)
-    size_bytes = Column(BigInteger, nullable=False)
-    mime_type = Column(String(100), nullable=False)
-    checksum = Column(String(64), nullable=True)  # SHA-256 checksum
-    status = Column(SQLEnum(FileStatus), default=FileStatus.UPLOADING, nullable=False)
-    minio_object_name = Column(String(255), nullable=False)  # Object path in MinIO
-    uploaded_by = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    completed_at = Column(DateTime, nullable=True)
-    
-    # Relationships
-    chunks = relationship("FileChunk", back_populates="file")
+# DEPRECATED: Old file models - replaced by File and FileChunkModel below
+# Kept for reference but not used in current implementation
+# class FileMetadata(Base):
+#     """Metadata for uploaded files stored in MinIO."""
+#     __tablename__ = "file_metadata"
+#     
+#     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+#     filename = Column(String(255), nullable=False)
+#     size_bytes = Column(BigInteger, nullable=False)
+#     mime_type = Column(String(100), nullable=False)
+#     checksum = Column(String(64), nullable=True)  # SHA-256 checksum
+#     status = Column(SQLEnum(FileStatus), default=FileStatus.UPLOADING, nullable=False)
+#     minio_object_name = Column(String(255), nullable=False)  # Object path in MinIO
+#     uploaded_by = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+#     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+#     completed_at = Column(DateTime, nullable=True)
+#     
+#     # Relationships
+#     chunks = relationship("FileChunk", back_populates="file")
 
 
-class FileChunk(Base):
-    """Tracks chunks for resumable file uploads."""
-    __tablename__ = "file_chunks"
-
-    __table_args__ = ({'extend_existing': True})
-    
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    file_id = Column(UUID(as_uuid=True), ForeignKey("file_metadata.id"), nullable=False, index=True)
-    chunk_number = Column(Integer, nullable=False)
-    size_bytes = Column(BigInteger, nullable=False)
-    uploaded_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    
-    # Relationships
-    file = relationship("FileMetadata", back_populates="chunks")
+# class FileChunk(Base):
+#     """Tracks chunks for resumable file uploads."""
+#     __tablename__ = "file_chunks"
+# 
+#     __table_args__ = ({'extend_existing': True})
+#     
+#     id = Column(Integer, primary_key=True, autoincrement=True)
+#     file_id = Column(UUID(as_uuid=True), ForeignKey("file_metadata.id"), nullable=False, index=True)
+#     chunk_number = Column(Integer, nullable=False)
+#     size_bytes = Column(BigInteger, nullable=False)
+#     uploaded_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+#     
+#     # Relationships
+#     file = relationship("FileMetadata", back_populates="chunks")
 
 
 class AuthSession(Base):

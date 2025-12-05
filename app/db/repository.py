@@ -8,7 +8,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 from db.models import (
     User, Conversation, ConversationMember, Message, MessageStatusHistory,
-    FileMetadata, FileChunk, AuthSession, ConversationType, MessageStatus, FileStatus,
+    File, FileChunkModel, AuthSession, ConversationType, MessageStatus, FileStatus,
     OutboxEvent
 )
 from core.config import settings
@@ -193,32 +193,35 @@ class Repository:
         mime_type: str,
         minio_object_name: str,
         uploaded_by: int
-    ) -> FileMetadata:
+    ) -> File:
         """Create file metadata record."""
-        file_metadata = FileMetadata(
+        file_metadata = File(
             id=file_id,
             filename=filename,
-            size_bytes=size_bytes,
+            file_size=size_bytes,
             mime_type=mime_type,
-            minio_object_name=minio_object_name,
-            uploaded_by=uploaded_by,
-            status=FileStatus.UPLOADING
+            storage_key=minio_object_name,
+            uploader_id=uploaded_by,
+            conversation_id=1,  # Default to conversation 1 for compatibility
+            status=FileStatus.PENDING,
+            chunk_size=5242880,  # 5MB
+            total_chunks=1
         )
         self.db.add(file_metadata)
         self.db.commit()
         self.db.refresh(file_metadata)
         return file_metadata
     
-    def get_file_metadata(self, file_id: UUID) -> Optional[FileMetadata]:
+    def get_file_metadata(self, file_id: UUID) -> Optional[File]:
         """Get file metadata by ID."""
-        return self.db.query(FileMetadata).filter(FileMetadata.id == file_id).first()
+        return self.db.query(File).filter(File.id == file_id).first()
     
     def update_file_metadata(
         self,
         file_id: UUID,
         status: Optional[FileStatus] = None,
         checksum: Optional[str] = None
-    ) -> Optional[FileMetadata]:
+    ) -> Optional[File]:
         """Update file metadata."""
         file_metadata = self.get_file_metadata(file_id)
         if file_metadata:
@@ -227,7 +230,7 @@ class Repository:
                 if status == FileStatus.COMPLETED:
                     file_metadata.completed_at = datetime.utcnow()
             if checksum:
-                file_metadata.checksum = checksum
+                file_metadata.checksum_sha256 = checksum
             self.db.commit()
             self.db.refresh(file_metadata)
         return file_metadata
@@ -237,12 +240,13 @@ class Repository:
         file_id: UUID,
         chunk_number: int,
         size_bytes: int
-    ) -> FileChunk:
+    ) -> FileChunkModel:
         """Create file chunk record."""
-        chunk = FileChunk(
+        chunk = FileChunkModel(
             file_id=file_id,
             chunk_number=chunk_number,
-            size_bytes=size_bytes
+            chunk_size=size_bytes,
+            storage_key=f"chunks/{file_id}/chunk-{chunk_number:03d}"
         )
         self.db.add(chunk)
         self.db.commit()
