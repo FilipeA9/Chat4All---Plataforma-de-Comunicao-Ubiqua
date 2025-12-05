@@ -8,7 +8,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 from db.models import (
     User, Conversation, ConversationMember, Message, MessageStatusHistory,
-    FileMetadata, FileChunk, AuthSession, ConversationType, MessageStatus, FileStatus,
+    FileMetadata, FileChunkModel, AuthSession, ConversationType, MessageStatus, FileStatus,
     OutboxEvent
 )
 from core.config import settings
@@ -236,13 +236,20 @@ class Repository:
         self,
         file_id: UUID,
         chunk_number: int,
-        size_bytes: int
-    ) -> FileChunk:
-        """Create file chunk record."""
-        chunk = FileChunk(
+        chunk_size: int,         # Adaptado para o novo modelo
+        storage_key: str,        # Novo campo obrigatório
+        checksum_sha256: Optional[str] = None # Novo campo opcional
+    ) -> FileChunkModel:
+        """Create file chunk record using the enhanced model."""
+        
+        # NOTE: O modelo antigo usava size_bytes. 
+        # O novo modelo usa chunk_size.
+        chunk = FileChunkModel(
             file_id=file_id,
             chunk_number=chunk_number,
-            size_bytes=size_bytes
+            chunk_size=chunk_size, 
+            storage_key=storage_key,
+            checksum_sha256=checksum_sha256
         )
         self.db.add(chunk)
         self.db.commit()

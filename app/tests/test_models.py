@@ -9,7 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from db.models import (
     Base, User, Conversation, ConversationMember, Message,
-    MessageStatusHistory, FileMetadata, FileChunk, AuthSession,
+    MessageStatusHistory, FileMetadata, FileChunkModel, AuthSession,
     ConversationType, MessageStatus, FileStatus
 )
 from core.security import hash_password, verify_password

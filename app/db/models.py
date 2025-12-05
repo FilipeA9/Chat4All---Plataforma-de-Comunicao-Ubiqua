@@ -136,23 +136,23 @@ class FileMetadata(Base):
     completed_at = Column(DateTime, nullable=True)
     
     # Relationships
-    chunks = relationship("FileChunk", back_populates="file")
+    chunks = relationship("FileChunkModel", back_populates="file")
 
 
-class FileChunk(Base):
-    """Tracks chunks for resumable file uploads."""
-    __tablename__ = "file_chunks"
+# class FileChunk(Base):
+#     """Tracks chunks for resumable file uploads."""
+#     __tablename__ = "file_chunks"
 
-    __table_args__ = ({'extend_existing': True})
+#     __table_args__ = ({'extend_existing': True})
     
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    file_id = Column(UUID(as_uuid=True), ForeignKey("file_metadata.id"), nullable=False, index=True)
-    chunk_number = Column(Integer, nullable=False)
-    size_bytes = Column(BigInteger, nullable=False)
-    uploaded_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+#     id = Column(Integer, primary_key=True, autoincrement=True)
+#     file_id = Column(UUID(as_uuid=True), ForeignKey("file_metadata.id"), nullable=False, index=True)
+#     chunk_number = Column(Integer, nullable=False)
+#     size_bytes = Column(BigInteger, nullable=False)
+#     uploaded_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
-    # Relationships
-    file = relationship("FileMetadata", back_populates="chunks")
+#     # Relationships
+#     file = relationship("FileMetadata", back_populates="chunks")
 
 
 class AuthSession(Base):
@@ -294,4 +294,11 @@ class FileChunkModel(Base):
     uploaded_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
     # Relationships
+    file = relationship("FileMetadata", back_populates="chunks")
     file = relationship("File", back_populates="chunks")
+    chunks = relationship(
+        "FileChunkModel", 
+        back_populates="file",
+        # Dizemos ao SQLAlchemy para usar o file_id como condição, mesmo que a FK aponte para 'files'
+        primaryjoin="FileMetadata.id == FileChunkModel.file_id" 
+    )
