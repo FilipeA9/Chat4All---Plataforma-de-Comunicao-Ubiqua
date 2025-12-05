@@ -2,6 +2,7 @@ services:
   # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
+    container_name: chat4all_postgres
     environment:
       POSTGRES_DB: chat4all
       POSTGRES_USER: chat4all_user
@@ -22,6 +23,7 @@ services:
   # Redis - Pub/Sub, Rate Limiting, Caching
   redis:
     image: redis:7-alpine
+    container_name: chat4all_redis
     command: redis-server --appendonly yes
     ports:
       - "6379:6379"
@@ -38,6 +40,7 @@ services:
   # Zookeeper (required by Kafka)
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
+    container_name: chat4all_zookeeper
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
@@ -54,6 +57,7 @@ services:
   # Kafka Broker
   kafka:
     image: confluentinc/cp-kafka:7.5.0
+    container_name: chat4all_kafka
     depends_on:
       zookeeper:
         condition: service_healthy
@@ -79,6 +83,7 @@ services:
   # MinIO Object Storage
   minio:
     image: minio/minio:latest
+    container_name: chat4all_minio
     command: server /data --console-address ":9001"
     ports:
       - "9000:9000"
@@ -118,22 +123,34 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      echo 'Waiting for Kafka to be ready...';
-      sleep 10;
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic message_processing --partitions 3 --replication-factor 1;
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic whatsapp_outgoing --partitions 1 --replication-factor 1;
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic instagram_outgoing --partitions 1 --replication-factor 1;
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic message_processing_dlq --partitions 1 --replication-factor 1;
-      echo 'Kafka topics created successfully';
-      kafka-topics --bootstrap-server kafka:29092 --list;
-      "
+    # Usamos sintaxe de lista [cmd, arg, script] com pipe (|)
+    # Isso evita erros de aspas e garante que o shell entenda as quebras de linha
+    entrypoint: 
+      - /bin/sh
+      - -c
+      - |
+        echo "Waiting for Kafka to be ready..."
+        # Loop: Enquanto o comando falhar (!), aguarde e tente de novo
+        while ! kafka-topics --bootstrap-server kafka:29092 --list > /dev/null 2>&1; do
+          echo "Kafka not accessible yet... retrying in 2s"
+          sleep 2
+        done
+        
+        echo "Kafka is ready! Creating topics..."
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic message_processing --partitions 3 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic whatsapp_outgoing --partitions 1 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic instagram_outgoing --partitions 1 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic message_processing_dlq --partitions 1 --replication-factor 1
+        
+        echo "Kafka topics created successfully"
+        kafka-topics --bootstrap-server kafka:29092 --list
     networks:
       - chat4all-network
 
   # FastAPI Application
   api:
+    container_name: chat4all_api
+    restart: no
     build:
       context: .
       dockerfile: Dockerfile
@@ -173,7 +190,7 @@ services:
     volumes:
       - .:/app
       - ./certs:/app/certs:ro  # Mount SSL certificates (T015)
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
@@ -184,6 +201,7 @@ services:
 
   # Message Router Worker
   worker-router:
+    container_name: chat4all_worker_router
     build:
       context: .
       dockerfile: Dockerfile
@@ -207,12 +225,13 @@ services:
     volumes:
       - .:/app
     command: python -m workers.message_router
-    restart: unless-stopped
+    restart: no
     networks:
       - chat4all-network
 
   # WhatsApp Mock Worker
   worker-whatsapp:
+    container_name: chat4all_worker_whatsapp
     build:
       context: .
       dockerfile: Dockerfile
@@ -233,12 +252,13 @@ services:
     volumes:
       - .:/app
     command: python -m workers.whatsapp_mock
-    restart: unless-stopped
+    restart: no
     networks:
       - chat4all-network
 
   # Instagram Mock Worker
   worker-instagram:
+    container_name: chat4all_worker_instagram
     build:
       context: .
       dockerfile: Dockerfile
@@ -259,12 +279,13 @@ services:
     volumes:
       - .:/app
     command: python -m workers.instagram_mock
-    restart: unless-stopped
+    restart: no
     networks:
       - chat4all-network
 
   # Outbox Poller Worker
   worker-outbox:
+    container_name: chat4all_worker_outbox
     build:
       context: .
       dockerfile: Dockerfile
@@ -280,12 +301,13 @@ services:
     volumes:
       - .:/app
     command: python -m workers.outbox_poller
-    restart: unless-stopped
+    restart: no
     networks:
       - chat4all-network
 
   # Message Status Updater Worker
   worker-status:
+    container_name: chat4all_worker_status
     build:
       context: .
       dockerfile: Dockerfile
@@ -304,12 +326,13 @@ services:
     volumes:
       - .:/app
     command: python -m workers.message_status_updater
-    restart: unless-stopped
+    restart: no
     networks:
       - chat4all-network
 
   # Prometheus - Metrics Collection
   prometheus:
+    container_name: chat4all_prometheus
     image: prom/prometheus:v2.48.0
     ports:
       - "9090:9090"
@@ -333,16 +356,17 @@ services:
 
   # Alertmanager - Alert Routing
   alertmanager:
+    container_name: chat4all_alertmanager
     image: prom/alertmanager:v0.26.0
     ports:
-      - "9093:9093"
+      - "9095:9093"
     volumes:
       - ./observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml
       - alertmanager_data:/alertmanager
     command:
       - '--config.file=/etc/alertmanager/alertmanager.yml'
       - '--storage.path=/alertmanager'
-      - '--cluster.advertise-address=0.0.0.0:9093'
+#      - '--cluster.advertise-address=0.0.0.0:9093'
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9093/-/healthy"]
       interval: 10s
@@ -353,6 +377,7 @@ services:
 
   # Jaeger - Distributed Tracing
   jaeger:
+    container_name: chat4all_jaeger
     image: jaegertracing/all-in-one:1.52
     ports:
       - "5775:5775/udp"
@@ -376,6 +401,7 @@ services:
 
   # Loki - Log Aggregation (T115)
   loki:
+    container_name: chat4all_loki
     image: grafana/loki:2.9.3
     ports:
       - "3100:3100"
@@ -390,6 +416,7 @@ services:
 
   # Grafana - Visualization and Dashboards (T117)
   grafana:
+    container_name: chat4all_grafana
     image: grafana/grafana:10.2.3
     ports:
       - "3000:3000"

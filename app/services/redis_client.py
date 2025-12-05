@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # Circuit breaker for Redis (T059)
 redis_circuit_breaker = pybreaker.CircuitBreaker(
     fail_max=3,  # Open circuit after 3 failures
-    timeout_duration=30,  # Keep circuit open for 30 seconds
+    #timeout=30,  # Keep circuit open for 30 seconds
     reset_timeout=15,  # Try half-open after 15 seconds
     name="redis_client",
     listeners=[

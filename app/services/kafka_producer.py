@@ -26,7 +26,7 @@ propagator = TraceContextTextMapPropagator()
 # Protects against cascading failures when Kafka is unavailable
 kafka_circuit_breaker = pybreaker.CircuitBreaker(
     fail_max=5,  # Open circuit after 5 failures
-    timeout_duration=60,  # Keep circuit open for 60 seconds
+    #timeout=60,  # Keep circuit open for 60 seconds
     reset_timeout=30,  # Try half-open after 30 seconds
     name="kafka_producer",
     listeners=[

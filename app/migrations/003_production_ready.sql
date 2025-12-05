@@ -25,7 +25,7 @@ CREATE TABLE access_tokens (
 
 CREATE INDEX idx_access_token_user ON access_tokens(user_id, revoked, expires_at);
 CREATE INDEX idx_access_token_expiration ON access_tokens(expires_at) WHERE revoked = FALSE;
-CREATE INDEX idx_access_token_cleanup ON access_tokens(expires_at) WHERE revoked = FALSE AND expires_at < NOW();
+CREATE INDEX idx_access_token_cleanup ON access_tokens(expires_at) WHERE revoked = FALSE;
 
 COMMENT ON TABLE access_tokens IS 'OAuth 2.0 access tokens for API authentication (15min expiration)';
 COMMENT ON COLUMN access_tokens.token_hash IS 'SHA-256 hash of JWT token for revocation checks';
@@ -47,7 +47,7 @@ CREATE TABLE refresh_tokens (
 );
 
 CREATE INDEX idx_refresh_token_user ON refresh_tokens(user_id, revoked, expires_at);
-CREATE INDEX idx_refresh_token_cleanup ON refresh_tokens(expires_at) WHERE revoked = FALSE AND expires_at < NOW();
+CREATE INDEX idx_refresh_token_cleanup ON refresh_tokens(expires_at) WHERE revoked = FALSE;
 
 COMMENT ON TABLE refresh_tokens IS 'OAuth 2.0 refresh tokens for obtaining new access tokens (30 day expiration)';
 COMMENT ON COLUMN refresh_tokens.last_used_at IS 'Timestamp of last successful /auth/refresh call';
@@ -134,7 +134,7 @@ CREATE TABLE files (
 
 CREATE INDEX idx_files_uploader ON files(uploaded_by);
 CREATE INDEX idx_files_status ON files(status, created_at);
-CREATE INDEX idx_files_gc ON files(status, expires_at) WHERE status = 'UPLOADING' AND expires_at < NOW();
+CREATE INDEX idx_files_gc ON files(status, expires_at) WHERE status = 'UPLOADING';
 CREATE INDEX idx_files_checksum ON files(checksum_sha256) WHERE checksum_sha256 IS NOT NULL;
 
 COMMENT ON TABLE files IS 'Enhanced file upload metadata with chunking and resumability support';
@@ -187,15 +187,18 @@ CREATE INDEX IF NOT EXISTS idx_conversation_members_lookup ON conversation_membe
 CREATE OR REPLACE FUNCTION cleanup_expired_tokens()
 RETURNS INTEGER AS $$
 DECLARE
-    deleted_count INTEGER;
+ deleted_count INTEGER := 0; -- Inicialização adicionada
+ rows_deleted INTEGER;
 BEGIN
-    DELETE FROM access_tokens WHERE expires_at < NOW() AND revoked = FALSE;
-    GET DIAGNOSTICS deleted_count = ROW_COUNT;
-    
-    DELETE FROM refresh_tokens WHERE expires_at < NOW() AND revoked = FALSE;
-    GET DIAGNOSTICS deleted_count = deleted_count + ROW_COUNT;
-    
-    RETURN deleted_count;
+ DELETE FROM access_tokens WHERE expires_at < NOW() AND revoked = FALSE;
+ GET DIAGNOSTICS rows_deleted = ROW_COUNT;
+    deleted_count := deleted_count + rows_deleted;
+ 
+ DELETE FROM refresh_tokens WHERE expires_at < NOW() AND revoked = FALSE;
+ GET DIAGNOSTICS rows_deleted = ROW_COUNT;
+    deleted_count := deleted_count + rows_deleted;
+ 
+ RETURN deleted_count;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -205,19 +208,21 @@ COMMENT ON FUNCTION cleanup_expired_tokens IS 'Cleanup expired access/refresh to
 CREATE OR REPLACE FUNCTION cleanup_expired_uploads()
 RETURNS INTEGER AS $$
 DECLARE
-    deleted_count INTEGER;
+ deleted_count INTEGER := 0; -- Inicialização adicionada
+    rows_deleted INTEGER;
 BEGIN
-    -- Delete chunks for expired uploads
-    DELETE FROM chunks WHERE upload_id IN (
-        SELECT upload_id FROM files 
-        WHERE status = 'UPLOADING' AND expires_at < NOW()
-    );
-    
-    -- Delete expired file records
-    DELETE FROM files WHERE status = 'UPLOADING' AND expires_at < NOW();
-    GET DIAGNOSTICS deleted_count = ROW_COUNT;
-    
-    RETURN deleted_count;
+ -- Delete chunks for expired uploads
+ DELETE FROM chunks WHERE upload_id IN (
+  SELECT upload_id FROM files 
+  WHERE status = 'UPLOADING' AND expires_at < NOW()
+ );
+ 
+ -- Delete expired file records
+ DELETE FROM files WHERE status = 'UPLOADING' AND expires_at < NOW();
+ GET DIAGNOSTICS rows_deleted = ROW_COUNT;
+    deleted_count := deleted_count + rows_deleted; -- Apenas a contagem de 'files' é relevante para o retorno
+ 
+ RETURN deleted_count;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -227,16 +232,16 @@ COMMENT ON FUNCTION cleanup_expired_uploads IS 'Cleanup expired incomplete file 
 CREATE OR REPLACE FUNCTION cleanup_stale_connections()
 RETURNS INTEGER AS $$
 DECLARE
-    deleted_count INTEGER;
+ deleted_count INTEGER;
 BEGIN
-    -- Mark connections as disconnected if no ping in 2 minutes
-    UPDATE websocket_connections 
-    SET disconnected_at = NOW()
-    WHERE disconnected_at IS NULL 
-      AND last_ping_at < NOW() - INTERVAL '2 minutes';
-    GET DIAGNOSTICS deleted_count = ROW_COUNT;
-    
-    RETURN deleted_count;
+ -- Mark connections as disconnected if no ping in 2 minutes
+ UPDATE websocket_connections 
+ SET disconnected_at = NOW()
+ WHERE disconnected_at IS NULL 
+   AND last_ping_at < NOW() - INTERVAL '2 minutes';
+ GET DIAGNOSTICS deleted_count = ROW_COUNT;
+ 
+ RETURN deleted_count;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -245,6 +250,21 @@ COMMENT ON FUNCTION cleanup_stale_connections IS 'Mark stale WebSocket connectio
 -- ============================================================================
 -- E5: Conversation Management Views (Epic 5 - Enhanced API)
 -- ============================================================================
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 
+        FROM pg_enum e 
+        JOIN pg_type t ON t.oid = e.enumtypid 
+        WHERE t.typname = 'message_status' AND e.enumlabel = 'READ'
+    ) THEN
+        ALTER TYPE message_status ADD VALUE 'READ';
+        RAISE NOTICE 'Added READ value to message_status ENUM.';
+    ELSE
+        RAISE NOTICE 'message_status ENUM already contains READ.';
+    END IF;
+END $$;
 
 -- Materialized View for Efficient Conversation Listing
 CREATE MATERIALIZED VIEW conversation_view AS

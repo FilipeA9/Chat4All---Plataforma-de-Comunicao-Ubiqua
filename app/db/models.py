@@ -142,6 +142,8 @@ class FileMetadata(Base):
 class FileChunk(Base):
     """Tracks chunks for resumable file uploads."""
     __tablename__ = "file_chunks"
+
+    __table_args__ = ({'extend_existing': True})
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     file_id = Column(UUID(as_uuid=True), ForeignKey("file_metadata.id"), nullable=False, index=True)
@@ -280,6 +282,8 @@ class FileChunkModel(Base):
     After all chunks are uploaded, they are merged into the final file and deleted.
     """
     __tablename__ = "file_chunks"
+
+    __table_args__ = ({'extend_existing': True})
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     file_id = Column(UUID(as_uuid=True), ForeignKey("files.id", ondelete="CASCADE"), nullable=False, index=True)
