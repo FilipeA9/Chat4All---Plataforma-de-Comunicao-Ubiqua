@@ -1,3 +1,0 @@
--- Chat4All API Hub - Seed Data Migration
--- Creates test users for development and testing
--- Note: This seed will be executed by database.py seed_db() function with proper password hashing

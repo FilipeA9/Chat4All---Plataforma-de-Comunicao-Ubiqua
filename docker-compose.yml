@@ -1,0 +1,157 @@
+version: '3.8'
+
+networks:
+  chat4all-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  minio_data:
+
+services:
+  # ----------------------------------------------------------------
+  # INFRAESTRUTURA (Banco, Broker, Storage)
+  # ----------------------------------------------------------------
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: chat4all-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - chat4all-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: chat4all-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - chat4all-net
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: chat4all-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    networks:
+      - chat4all-net
+    healthcheck:
+      test: nc -z localhost 9092 || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: chat4all-minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+    networks:
+      - chat4all-net
+
+  minio-create-bucket:
+    image: minio/mc
+    depends_on:
+      - minio
+    networks:
+      - chat4all-net
+    entrypoint: >
+      /bin/sh -c "
+      until (/usr/bin/mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}); do echo '...waiting for minio...'; sleep 5; done;
+      /usr/bin/mc mb myminio/${MINIO_BUCKET} --ignore-existing;
+      /usr/bin/mc anonymous set public myminio/${MINIO_BUCKET};
+      exit 0;
+      "
+
+  # ----------------------------------------------------------------
+  # SERVIÇOS DA APLICAÇÃO (API, Worker e Connectors)
+  # ----------------------------------------------------------------
+
+  # API Principal
+  api:
+    build: ./services/api
+    container_name: chat4all-api
+    ports:
+      - "8000:8000" # Swagger disponível em localhost:8000/docs
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    networks:
+      - chat4all-net
+
+  # Router Worker (Processa Mensagens e Salva no Banco)
+  router-worker:
+    build: ./services/router-worker
+    container_name: chat4all-router
+    env_file: .env
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - chat4all-net
+    restart: on-failure
+
+  # Mock WhatsApp Connector
+  connector-wa:
+    build: ./services/connector-wa
+    container_name: chat4all-mock-wa
+    ports:
+      - "8001:8000" # Swagger disponível em localhost:8001/docs
+    env_file: .env
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - chat4all-net
+
+  # Mock Instagram Connector
+  connector-insta:
+    build: ./services/connector-insta
+    container_name: chat4all-mock-insta
+    ports:
+      - "8002:8000" # Swagger disponível em localhost:8002/docs
+    env_file: .env
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - chat4all-net
