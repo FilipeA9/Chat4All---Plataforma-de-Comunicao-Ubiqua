@@ -109,11 +109,11 @@ class OutboxPoller:
                 enable_idempotence=True,
                 acks='all',  # Wait for all in-sync replicas
                 retries=5,
-                max_in_flight_requests_per_connection=5,
+                max_in_flight_requests_per_connection=1,
                 # Timeout configuration
                 request_timeout_ms=30000,
                 # Compression for better throughput
-                compression_type='snappy'
+                compression_type=None
             )
             logger.info("Kafka producer initialized successfully")
         except Exception as e:
