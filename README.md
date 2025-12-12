@@ -13,8 +13,8 @@
 Este documento descreve detalhadamente a arquitetura, componentes, fluxos, decisões técnicas e mecanismos de resiliência implementados no projeto.
 A análise combina:
 
-* O código do **projeto `api.zip`**,
-* Os diagramas enviados em **Diagramas.zip**.
+* O código do **projeto `Chat4All`**,
+* Os diagramas de modelagem de dados em **Diagramas**.
 
 O objetivo final é consolidar uma visão arquitetural completa e coerente, adequada para referência técnica e manutenção contínua.
 
