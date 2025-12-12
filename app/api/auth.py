@@ -92,7 +92,7 @@ def issue_token(request_body: TokenRequest, request: Request, db: Session = Depe
         {
             "username": "user1",
             "password": "password123",
-            "grant_type": "password"
+            "grant_type": "client_credentials"
         }
     """
     repository = Repository(db)
