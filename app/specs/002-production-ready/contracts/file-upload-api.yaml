@@ -1,0 +1,529 @@
+openapi: 3.1.0
+info:
+  title: Chat4All File Upload API (Chunked)
+  description: |
+    Resumable chunked file upload endpoints for Chat4All v2 platform.
+    Supports files up to 2GB with 5-10MB chunks. Includes upload initiation, chunk upload, status query, and completion.
+  version: 2.0.0
+  contact:
+    name: Chat4All Team
+    email: dev@chat4all.local
+
+servers:
+  - url: http://localhost:8000
+    description: Local development
+  - url: https://api.chat4all.local
+    description: Production
+
+tags:
+  - name: File Upload
+    description: Chunked file upload operations
+
+paths:
+  /v1/files/initiate:
+    post:
+      tags:
+        - File Upload
+      summary: Initiate chunked file upload
+      description: |
+        Initiates a new file upload session. Returns an upload_id and metadata for subsequent chunk uploads.
+        The client should split the file into chunks of the recommended size (5-10MB) and upload each chunk sequentially.
+      operationId: initiateFileUpload
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InitiateUploadRequest'
+            examples:
+              video_upload:
+                summary: 1GB video file
+                value:
+                  conversation_id: "123e4567-e89b-12d3-a456-426614174000"
+                  filename: "vacation_video.mp4"
+                  file_size: 1073741824
+                  mime_type: "video/mp4"
+                  checksum_sha256: "abc123def456..."
+                  chunk_size: 5242880
+      responses:
+        '201':
+          description: Upload session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InitiateUploadResponse'
+              examples:
+                success:
+                  summary: Upload session created
+                  value:
+                    upload_id: "223e4567-e89b-12d3-a456-426614174000"
+                    total_chunks: 205
+                    chunk_size: 5242880
+                    expires_at: "2025-12-01T12:00:00Z"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '413':
+          description: File size exceeds 2GB limit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                file_too_large:
+                  summary: File exceeds 2GB
+                  value:
+                    error: "file_too_large"
+                    message: "File size exceeds maximum allowed size of 2GB"
+
+  /v1/files/{upload_id}/chunks:
+    post:
+      tags:
+        - File Upload
+      summary: Upload a file chunk
+      description: |
+        Uploads a single chunk of a file upload session. Chunks must be uploaded sequentially (chunk 1, then 2, then 3, etc.).
+        The chunk data is sent as binary in the request body.
+      operationId: uploadFileChunk
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: upload_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Upload session ID from POST /v1/files/initiate
+          example: "223e4567-e89b-12d3-a456-426614174000"
+        - name: chunk_number
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: 1-based chunk number (1, 2, 3, ..., total_chunks)
+          example: 5
+        - name: checksum_sha256
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: '^[a-f0-9]{64}$'
+          description: SHA-256 checksum of this chunk (optional, for integrity verification)
+          example: "abcdef1234567890..."
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+              description: Binary chunk data (5-10MB recommended)
+      responses:
+        '200':
+          description: Chunk uploaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadChunkResponse'
+              examples:
+                success:
+                  summary: Chunk uploaded
+                  value:
+                    upload_id: "223e4567-e89b-12d3-a456-426614174000"
+                    chunk_number: 5
+                    uploaded_chunks: 5
+                    total_chunks: 205
+                    percentage: 2.44
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Upload session not found or expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Chunk already uploaded (duplicate)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                duplicate_chunk:
+                  summary: Chunk already exists
+                  value:
+                    error: "duplicate_chunk"
+                    message: "Chunk 5 has already been uploaded"
+
+  /v1/files/{upload_id}/status:
+    get:
+      tags:
+        - File Upload
+      summary: Query upload status
+      description: |
+        Returns the current status of a file upload session. Useful for resuming interrupted uploads.
+      operationId: getUploadStatus
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: upload_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Upload session ID
+          example: "223e4567-e89b-12d3-a456-426614174000"
+      responses:
+        '200':
+          description: Upload status retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadStatusResponse'
+              examples:
+                in_progress:
+                  summary: Upload in progress
+                  value:
+                    upload_id: "223e4567-e89b-12d3-a456-426614174000"
+                    status: "uploading"
+                    uploaded_chunks: 100
+                    total_chunks: 205
+                    percentage: 48.78
+                    missing_chunks: [101, 102, 103, ...]
+                    created_at: "2025-11-30T10:00:00Z"
+                    expires_at: "2025-12-01T12:00:00Z"
+                completed:
+                  summary: Upload completed
+                  value:
+                    upload_id: "223e4567-e89b-12d3-a456-426614174000"
+                    status: "completed"
+                    uploaded_chunks: 205
+                    total_chunks: 205
+                    percentage: 100.0
+                    file_id: "323e4567-e89b-12d3-a456-426614174000"
+                    download_url: "https://cdn.chat4all.local/files/conv123/vacation_video.mp4"
+                    completed_at: "2025-11-30T12:00:00Z"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Upload session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/files/{upload_id}/complete:
+    post:
+      tags:
+        - File Upload
+      summary: Complete file upload
+      description: |
+        Signals that all chunks have been uploaded and triggers the merge process.
+        A background worker will merge all chunks into the final file in MinIO/S3.
+      operationId: completeFileUpload
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: upload_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Upload session ID
+          example: "223e4567-e89b-12d3-a456-426614174000"
+      responses:
+        '202':
+          description: Upload completion accepted, merge in progress
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompleteUploadResponse'
+              examples:
+                accepted:
+                  summary: Merge triggered
+                  value:
+                    upload_id: "223e4567-e89b-12d3-a456-426614174000"
+                    status: "merging"
+                    message: "File merge initiated. Check status for completion."
+                    estimated_completion: "2025-11-30T12:00:10Z"
+        '400':
+          description: Not all chunks uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                incomplete:
+                  summary: Missing chunks
+                  value:
+                    error: "incomplete_upload"
+                    message: "Not all chunks have been uploaded. Missing: [101, 102, 103]"
+                    missing_chunks: [101, 102, 103]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Upload session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    InitiateUploadRequest:
+      type: object
+      required:
+        - conversation_id
+        - filename
+        - file_size
+        - mime_type
+      properties:
+        conversation_id:
+          type: string
+          format: uuid
+          description: Conversation ID where the file will be attached
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        filename:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Original filename (e.g., "vacation_video.mp4")
+          example: "vacation_video.mp4"
+        file_size:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 2147483648
+          description: Total file size in bytes (max 2GB)
+          example: 1073741824
+        mime_type:
+          type: string
+          description: MIME type of the file
+          example: "video/mp4"
+        checksum_sha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+          description: SHA-256 checksum of the complete file (for final integrity verification)
+          example: "abc123def456..."
+        chunk_size:
+          type: integer
+          minimum: 1048576
+          maximum: 52428800
+          description: Desired chunk size in bytes (1MB - 50MB, recommended 5-10MB)
+          example: 5242880
+
+    InitiateUploadResponse:
+      type: object
+      required:
+        - upload_id
+        - total_chunks
+        - chunk_size
+        - expires_at
+      properties:
+        upload_id:
+          type: string
+          format: uuid
+          description: Unique upload session identifier
+          example: "223e4567-e89b-12d3-a456-426614174000"
+        total_chunks:
+          type: integer
+          description: Total number of chunks to upload
+          example: 205
+        chunk_size:
+          type: integer
+          description: Chunk size in bytes (all chunks except last must be this size)
+          example: 5242880
+        expires_at:
+          type: string
+          format: date-time
+          description: Upload session expiration timestamp (24 hours from creation)
+          example: "2025-12-01T12:00:00Z"
+
+    UploadChunkResponse:
+      type: object
+      required:
+        - upload_id
+        - chunk_number
+        - uploaded_chunks
+        - total_chunks
+        - percentage
+      properties:
+        upload_id:
+          type: string
+          format: uuid
+          description: Upload session ID
+          example: "223e4567-e89b-12d3-a456-426614174000"
+        chunk_number:
+          type: integer
+          description: Chunk number that was just uploaded
+          example: 5
+        uploaded_chunks:
+          type: integer
+          description: Total count of uploaded chunks so far
+          example: 5
+        total_chunks:
+          type: integer
+          description: Total number of chunks
+          example: 205
+        percentage:
+          type: number
+          format: float
+          description: Upload progress percentage (0-100)
+          example: 2.44
+
+    UploadStatusResponse:
+      type: object
+      required:
+        - upload_id
+        - status
+        - uploaded_chunks
+        - total_chunks
+        - percentage
+      properties:
+        upload_id:
+          type: string
+          format: uuid
+          description: Upload session ID
+          example: "223e4567-e89b-12d3-a456-426614174000"
+        status:
+          type: string
+          enum: [pending, uploading, merging, completed, failed]
+          description: Upload status
+          example: "uploading"
+        uploaded_chunks:
+          type: integer
+          description: Count of successfully uploaded chunks
+          example: 100
+        total_chunks:
+          type: integer
+          description: Total number of chunks
+          example: 205
+        percentage:
+          type: number
+          format: float
+          description: Upload progress percentage
+          example: 48.78
+        missing_chunks:
+          type: array
+          items:
+            type: integer
+          description: List of chunk numbers not yet uploaded (optional)
+          example: [101, 102, 103]
+        file_id:
+          type: string
+          format: uuid
+          description: Final file ID (only present when status=completed)
+          example: "323e4567-e89b-12d3-a456-426614174000"
+        download_url:
+          type: string
+          format: uri
+          description: URL to download the complete file (only present when status=completed)
+          example: "https://cdn.chat4all.local/files/conv123/vacation_video.mp4"
+        created_at:
+          type: string
+          format: date-time
+          description: Upload session creation timestamp
+          example: "2025-11-30T10:00:00Z"
+        expires_at:
+          type: string
+          format: date-time
+          description: Upload session expiration timestamp
+          example: "2025-12-01T12:00:00Z"
+        completed_at:
+          type: string
+          format: date-time
+          description: Upload completion timestamp (only present when status=completed)
+          example: "2025-11-30T12:00:00Z"
+
+    CompleteUploadResponse:
+      type: object
+      required:
+        - upload_id
+        - status
+        - message
+      properties:
+        upload_id:
+          type: string
+          format: uuid
+          description: Upload session ID
+          example: "223e4567-e89b-12d3-a456-426614174000"
+        status:
+          type: string
+          enum: [merging, completed, failed]
+          description: Upload status after completion request
+          example: "merging"
+        message:
+          type: string
+          description: Human-readable status message
+          example: "File merge initiated. Check status for completion."
+        estimated_completion:
+          type: string
+          format: date-time
+          description: Estimated time when merge will complete
+          example: "2025-11-30T12:00:10Z"
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Machine-readable error code
+          example: "invalid_request"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "File size exceeds maximum allowed size of 2GB"
+        details:
+          type: object
+          description: Additional error details (optional)
+
+  responses:
+    BadRequest:
+      description: Invalid request (missing fields, invalid values)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            missing_field:
+              summary: Missing required field
+              value:
+                error: "invalid_request"
+                message: "conversation_id is required"
+
+    Unauthorized:
+      description: Authentication failed (invalid or expired JWT token)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            expired_token:
+              summary: JWT token expired
+              value:
+                error: "unauthorized"
+                message: "JWT token has expired"
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT access token obtained from POST /auth/token.
+        Include in Authorization header: `Authorization: Bearer <access_token>`
+
+security:
+  - BearerAuth: []

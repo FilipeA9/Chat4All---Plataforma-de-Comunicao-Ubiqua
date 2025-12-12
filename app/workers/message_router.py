@@ -2,20 +2,30 @@
 Message Router Worker
 Consumes messages from 'message_processing' topic and routes them to
 appropriate channel topics based on the channels array.
+Enhanced with OpenTelemetry trace context extraction (T110).
 """
 import json
 import logging
 import signal
 import sys
+from prometheus_client import start_http_server
 from kafka import KafkaConsumer, KafkaProducer
 from kafka.errors import KafkaError
 from core.config import settings
 
-logging.basicConfig(
-    level=settings.log_level,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# OpenTelemetry imports (T110)
+from opentelemetry import trace
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+
+# Configure structured logging
+from core.logging_config import configure_logging
+configure_logging(service_name="chat4all-worker-router", level=settings.log_level, enable_json=True)
+
 logger = logging.getLogger(__name__)
+
+# W3C Trace Context propagator
+propagator = TraceContextTextMapPropagator()
+tracer = trace.get_tracer(__name__)
 
 # Global flag for graceful shutdown
 shutdown_requested = False
@@ -140,12 +150,20 @@ def route_message(producer: KafkaProducer, message_data: dict) -> None:
             topics_to_publish.append("instagram_outgoing")
         logger.info(f"Message {message_id}: routing to {', '.join(topics_to_publish)}")
     
+    # Use conversation_id as partition key to ensure message ordering within conversations
+    conversation_id = str(message_data.get("conversation_id", ""))
+    partition_key = f"conversation:{conversation_id}" if conversation_id else None
+    
     # Publish to each topic
     for topic in topics_to_publish:
         try:
-            future = producer.send(topic, value=message_data)
+            future = producer.send(
+                topic, 
+                value=message_data,
+                key=partition_key  # Ensure messages go to same partition
+            )
             future.get(timeout=10)  # Wait for confirmation
-            logger.info(f"Message {message_id} published to {topic}")
+            logger.info(f"Message {message_id} published to {topic} with key {partition_key}")
         except KafkaError as e:
             logger.error(f"Failed to publish message {message_id} to {topic}: {e}")
 
@@ -159,27 +177,34 @@ def main():
     signal.signal(signal.SIGTERM, signal_handler)
     
     logger.info("Message Router Worker starting...")
+
+    print("Iniciando servidor de métricas Prometheus na porta 8000...")
+    start_http_server(8000)
     
     try:
-        # Create Kafka consumer
+        # Create Kafka consumer with manual offset commit for message ordering
         consumer = KafkaConsumer(
             "message_processing",
             bootstrap_servers=settings.kafka_bootstrap_servers.split(','),
             value_deserializer=lambda v: json.loads(v.decode('utf-8')),
             group_id="message_router_group",
             auto_offset_reset='earliest',
-            enable_auto_commit=True
+            # Disable auto-commit for better control over message processing
+            enable_auto_commit=False,
+            # Ensure messages within same partition are processed in order
+            max_poll_records=10  # Process in small batches to reduce lag
         )
         
-        # Create Kafka producer
+        # Create Kafka producer with partition key support for ordering
         producer = KafkaProducer(
             bootstrap_servers=settings.kafka_bootstrap_servers.split(','),
             value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+            key_serializer=lambda k: k.encode('utf-8') if k else None,
             acks='all',
             retries=3
         )
         
-        logger.info("Message Router Worker connected to Kafka")
+        logger.info("Message Router Worker connected to Kafka (manual commit mode)")
         
         # Process messages
         for message in consumer:
@@ -189,10 +214,45 @@ def main():
             
             try:
                 message_data = message.value
-                logger.info(f"Processing message {message_data.get('message_id')}")
-                route_message(producer, message_data)
+                
+                # Extract trace context from Kafka headers
+                carrier = {}
+                if message.headers:
+                    for key, value in message.headers:
+                        if value:
+                            carrier[key] = value.decode('utf-8') if isinstance(value, bytes) else value
+                
+                # Extract parent context from headers
+                ctx = propagator.extract(carrier=carrier)
+                
+                # Create a new span as a child of the extracted context
+                with tracer.start_as_current_span(
+                    "message_router.process",
+                    context=ctx,
+                    attributes={
+                        "messaging.system": "kafka",
+                        "messaging.destination": message.topic,
+                        "messaging.kafka.partition": message.partition,
+                        "messaging.kafka.offset": message.offset,
+                        "messaging.kafka.consumer_group": "message_router_group",
+                        "message.id": str(message_data.get('message_id')),
+                        "message.channels": str(message_data.get('channels', [])),
+                    }
+                ):
+                    logger.info(
+                        f"Processing message {message_data.get('message_id')} "
+                        f"from partition {message.partition} offset {message.offset}"
+                    )
+                    route_message(producer, message_data)
+                    
+                    # Commit offset only after successful processing
+                    # This ensures at-least-once delivery and maintains ordering
+                    consumer.commit()
+                    logger.debug(f"Committed offset {message.offset} for partition {message.partition}")
+                
             except Exception as e:
                 logger.error(f"Error processing message: {e}")
+                # Do NOT commit offset on failure - message will be reprocessed
         
         # Clean up
         consumer.close()

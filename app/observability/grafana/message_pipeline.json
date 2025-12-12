@@ -1,0 +1,158 @@
+{
+  "title": "Chat4All - Message Pipeline",
+  "description": "End-to-end message processing metrics (Requires custom instrumentation for business logic)",
+  "tags": ["chat4all", "messages", "kafka", "pipeline"],
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Message Throughput (msg/sec)",
+      "description": "REQUIRES CODE INSTRUMENTATION: messages_processed_total",
+      "type": "graph",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "rate(messages_processed_total{status=\"success\"}[5m])",
+          "legendFormat": "{{worker}} - Success",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(messages_processed_total{status=\"failed\"}[5m])",
+          "legendFormat": "{{worker}} - Failed",
+          "refId": "B"
+        }
+      ],
+      "yaxes": [
+        {"format": "ops", "label": "Messages/sec"},
+        {"format": "short"}
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Message Processing Latency (P95)",
+      "description": "REQUIRES CODE INSTRUMENTATION: message_processing_duration_seconds",
+      "type": "graph",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(message_processing_duration_seconds_bucket[5m]))",
+          "legendFormat": "P95 Latency",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {"format": "s", "label": "Latency"},
+        {"format": "short"}
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Kafka Consumer Lag by Topic",
+      "description": "FIXED: Uses kafka-exporter metrics",
+      "type": "graph",
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "kafka_consumergroup_lag",
+          "legendFormat": "{{topic}} (Group: {{consumergroup}})",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {"format": "short", "label": "Messages Behind"},
+        {"format": "short"}
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Worker Health Status",
+      "description": "FIXED: Checks if Prometheus can scrape the workers",
+      "type": "table",
+      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "up{job=\"chat4all-workers\"}",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {"Time": true, "__name__": true},
+            "renameByName": {
+              "instance": "Worker Instance",
+              "worker_type": "Type",
+              "Value": "Status (1=UP)"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Pending Outbox Events",
+      "description": "REQUIRES CODE INSTRUMENTATION: outbox_pending_events",
+      "type": "stat",
+      "gridPos": {"x": 0, "y": 16, "w": 8, "h": 6},
+      "targets": [
+        {
+          "expr": "outbox_pending_events",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 5,
+      "title": "DLQ Messages (Total)",
+      "description": "REQUIRES CODE INSTRUMENTATION: dlq_messages_total",
+      "type": "stat",
+      "gridPos": {"x": 8, "y": 16, "w": 8, "h": 6},
+      "targets": [
+        {
+          "expr": "increase(dlq_messages_total[1h])",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 12,
+      "title": "Redis Pub/Sub Activity",
+      "description": "FIXED: Uses redis-exporter metrics",
+      "type": "graph",
+      "gridPos": {"x": 16, "y": 16, "w": 8, "h": 6},
+      "targets": [
+        {
+          "expr": "rate(redis_commands_total{cmd=\"publish\"}[5m])",
+          "legendFormat": "Publish Cmds",
+          "refId": "A"
+        },
+        {
+          "expr": "redis_pubsub_channels",
+          "legendFormat": "Active Channels",
+          "refId": "B"
+        }
+      ],
+      "yaxes": [
+        {"format": "short", "label": "Count"}
+      ]
+    }
+  ]
+}

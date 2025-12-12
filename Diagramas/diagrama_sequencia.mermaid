@@ -1,0 +1,21 @@
+sequenceDiagram
+title Diagrama de Sequência
+participant User
+participant API
+participant Postgres
+participant Outbox_Poller
+participant Kafka
+participant Message_Router
+participant Workers
+
+User->>API: POST /messages
+API->>Postgres: salva mensagem ("messages")
+API->>Postgres: salva mensagem ("outbox_events")
+Outbox_Poller->>Postgres: consome evento do banco ("outbox_events")
+Outbox_Poller->>Kafka: Publica evento "message_created"
+Message_Router->>Kafka: Consome evento
+Message_Router->>Workers: Roteia mensagem
+Workers->>Postgres: Atualiza status (delivered)
+Workers->>Kafka: Publica evento "status_updated"
+API->>Kafka: Consome evento
+API->>User: Retorna mensagem registrada

@@ -478,6 +478,124 @@ Após executar `docker-compose up -d`, você terá:
 
 ---
 
+## 🏭 Modo Produção: Kafka HA Cluster
+
+Para ambientes de produção com **alta disponibilidade** e **zero data loss**:
+
+### 📖 Guia Completo
+
+Ver **[docs/KAFKA_HA_GUIDE.md](docs/KAFKA_HA_GUIDE.md)** para documentação completa.
+
+### 🚀 Quick Start (Production)
+
+```powershell
+# 1. Parar ambiente de desenvolvimento (se estiver rodando)
+docker-compose down
+
+# 2. Iniciar Kafka HA Cluster (3 brokers + 3 ZooKeeper)
+docker-compose -f docker-compose.kafka-cluster.yml up -d
+
+# 3. Aguardar inicialização (~60 segundos)
+Start-Sleep -Seconds 60
+
+# 4. Verificar saúde do cluster
+docker-compose -f docker-compose.kafka-cluster.yml ps
+```
+
+### 🎯 Recursos de Produção
+
+| Recurso | Desenvolvimento | Produção (HA) |
+|---------|----------------|---------------|
+| **Kafka Brokers** | 1 broker (single point of failure) | 3 brokers (zero downtime) |
+| **ZooKeeper** | 1 node | 3 nodes (quorum) |
+| **Replication Factor** | 1 (sem backup) | 3 (dados triplicados) |
+| **min.insync.replicas** | 1 | 2 (garante durabilidade) |
+| **Failover** | ❌ Manual restart | ✅ Automático (<30s) |
+| **Data Loss** | ⚠️ Possível | ✅ Zero perda (acks='all') |
+| **Monitoring** | ❌ Básico | ✅ Prometheus + Kafka UI |
+| **Web Interface** | ❌ N/A | ✅ http://localhost:8080 |
+| **Health Metrics** | ❌ N/A | ✅ http://localhost:9090/metrics |
+
+### 🧪 Testar Failover
+
+```powershell
+# 1. Verificar cluster saudável
+docker-compose -f docker-compose.kafka-cluster.yml ps
+
+# 2. Matar 1 broker (simular falha)
+docker stop app-kafka-2-1
+
+# 3. Sistema continua operando (zero downtime)
+# Verificar no Kafka UI: http://localhost:8080
+
+# 4. Reiniciar broker (recuperação automática)
+docker start app-kafka-2-1
+
+# 5. Cluster volta ao estado completo (~30 segundos)
+```
+
+### 📊 Monitoramento
+
+**Kafka UI** (http://localhost:8080):
+- Visualizar brokers, topics, partitions
+- Inspecionar mensagens em tempo real
+- Monitorar consumer groups e lag
+
+**Health Metrics** (http://localhost:9090/metrics):
+- Prometheus-format metrics
+- Kafka cluster health status
+- Broker availability
+- Topic replication status
+
+### ⚠️ Nota Importante
+
+**Não execute ambos os modos simultaneamente**:
+- Development (`docker-compose.yml`): Kafka na porta **9092**
+- Production (`docker-compose.kafka-cluster.yml`): Kafka nas portas **9092, 9093, 9094**
+
+**Conflito de portas**: Sempre pare um antes de iniciar o outro:
+
+```powershell
+# Parar desenvolvimento
+docker-compose down
+
+# Iniciar produção
+docker-compose -f docker-compose.kafka-cluster.yml up -d
+
+# OU vice-versa
+docker-compose -f docker-compose.kafka-cluster.yml down
+docker-compose up -d
+```
+
+### 🧪 Load Testing
+
+Para validação de performance com Kafka HA:
+
+📖 **[LOAD_TESTING_SUMMARY.md](LOAD_TESTING_SUMMARY.md)**
+
+```powershell
+# 1. Garantir que Kafka HA está rodando
+docker-compose -f docker-compose.kafka-cluster.yml ps
+
+# 2. Executar testes de carga (~45 minutos)
+cd tests\load
+.\run_all_tests.ps1
+
+# Testes incluem:
+# - API Throughput: 166.666 req/s (5000 users)
+# - WebSocket: 10.000 concurrent connections
+# - File Upload: 100 concurrent 1GB uploads
+# - Sustained Load: 15 minutes continuous
+```
+
+**Documentação Completa**:
+- [Kafka HA Implementation](docs/KAFKA_HA_IMPLEMENTATION.md)
+- [Load Testing Status](LOAD_TESTING_STATUS.md)
+- [Production Specification](specs/002-production-ready/spec.md)
+- [Production Architecture](specs/002-production-ready/plan.md)
+
+---
+
 ## 🚀 Próximos Passos
 
 Agora que o ambiente está rodando:
@@ -486,6 +604,7 @@ Agora que o ambiente está rodando:
 2. ✅ **Teste os endpoints** usando Swagger ou curl/Invoke-RestMethod
 3. ✅ **Acompanhe os logs** dos workers processando mensagens
 4. ✅ **Desenvolva novas features** (código monta automaticamente no container)
+5. ✅ **Upgrade para Produção**: Siga o guia de Kafka HA para high availability
 
 ---
 

@@ -1,0 +1,316 @@
+openapi: 3.1.0
+info:
+  title: Chat4All Authentication API
+  description: |
+    OAuth 2.0 Client Credentials authentication endpoints for Chat4All v2 platform.
+    Implements JWT-based access tokens (15-minute expiration) and refresh tokens (30-day expiration).
+  version: 2.0.0
+  contact:
+    name: Chat4All Team
+    email: dev@chat4all.local
+
+servers:
+  - url: http://localhost:8000
+    description: Local development
+  - url: https://api.chat4all.local
+    description: Production
+
+tags:
+  - name: Authentication
+    description: OAuth 2.0 Client Credentials flow operations
+
+paths:
+  /auth/token:
+    post:
+      tags:
+        - Authentication
+      summary: Obtain access token
+      description: |
+        OAuth 2.0 Client Credentials grant. Exchanges client credentials for an access token and refresh token.
+        Access token is a JWT with 15-minute expiration. Refresh token is an opaque string with 30-day expiration.
+      operationId: getAccessToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+            examples:
+              valid_credentials:
+                summary: Valid client credentials
+                value:
+                  client_id: "client_123"
+                  client_secret: "secret_abc"
+                  grant_type: "client_credentials"
+      responses:
+        '200':
+          description: Successfully authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+              examples:
+                success:
+                  summary: Successful authentication
+                  value:
+                    access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    token_type: "Bearer"
+                    expires_in: 900
+                    refresh_token: "d3f8a9b2c1e4567890abcdef12345678"
+                    scope: "read write"
+        '400':
+          description: Invalid request (missing fields, invalid grant_type)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_field:
+                  summary: Missing required field
+                  value:
+                    error: "invalid_request"
+                    error_description: "client_id is required"
+        '401':
+          description: Authentication failed (invalid credentials)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_credentials:
+                  summary: Invalid client credentials
+                  value:
+                    error: "invalid_client"
+                    error_description: "Client authentication failed"
+
+  /auth/refresh:
+    post:
+      tags:
+        - Authentication
+      summary: Refresh access token
+      description: |
+        Exchanges a valid refresh token for a new access token. The refresh token remains valid (not rotated).
+        Optional: Implement token rotation by invalidating the old refresh token and issuing a new one.
+      operationId: refreshAccessToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+            examples:
+              valid_refresh:
+                summary: Valid refresh token
+                value:
+                  refresh_token: "d3f8a9b2c1e4567890abcdef12345678"
+                  grant_type: "refresh_token"
+      responses:
+        '200':
+          description: Successfully refreshed access token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+              examples:
+                success:
+                  summary: New access token issued
+                  value:
+                    access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    token_type: "Bearer"
+                    expires_in: 900
+                    refresh_token: "d3f8a9b2c1e4567890abcdef12345678"
+                    scope: "read write"
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Invalid or expired refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                expired_token:
+                  summary: Expired refresh token
+                  value:
+                    error: "invalid_grant"
+                    error_description: "Refresh token expired"
+                revoked_token:
+                  summary: Revoked refresh token
+                  value:
+                    error: "invalid_grant"
+                    error_description: "Refresh token has been revoked"
+
+  /auth/revoke:
+    post:
+      tags:
+        - Authentication
+      summary: Revoke refresh token (logout)
+      description: |
+        Revokes a refresh token, effectively logging out the user. After revocation, the refresh token cannot be used to obtain new access tokens.
+        Existing access tokens remain valid until expiration (15 minutes).
+      operationId: revokeRefreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevokeRequest'
+            examples:
+              revoke:
+                summary: Revoke refresh token
+                value:
+                  refresh_token: "d3f8a9b2c1e4567890abcdef12345678"
+      responses:
+        '200':
+          description: Refresh token successfully revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevokeResponse'
+              examples:
+                success:
+                  summary: Token revoked
+                  value:
+                    message: "Refresh token revoked successfully"
+        '400':
+          description: Invalid request (missing refresh_token)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Invalid or already revoked refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    TokenRequest:
+      type: object
+      required:
+        - client_id
+        - client_secret
+        - grant_type
+      properties:
+        client_id:
+          type: string
+          description: Client identifier (user's UUID or application ID)
+          example: "client_123"
+        client_secret:
+          type: string
+          format: password
+          description: Client secret (hashed password or API key)
+          example: "secret_abc"
+        grant_type:
+          type: string
+          enum: [client_credentials]
+          description: OAuth 2.0 grant type (must be 'client_credentials')
+          example: "client_credentials"
+
+    RefreshRequest:
+      type: object
+      required:
+        - refresh_token
+        - grant_type
+      properties:
+        refresh_token:
+          type: string
+          description: Refresh token obtained from /auth/token
+          example: "d3f8a9b2c1e4567890abcdef12345678"
+        grant_type:
+          type: string
+          enum: [refresh_token]
+          description: OAuth 2.0 grant type (must be 'refresh_token')
+          example: "refresh_token"
+
+    RevokeRequest:
+      type: object
+      required:
+        - refresh_token
+      properties:
+        refresh_token:
+          type: string
+          description: Refresh token to revoke
+          example: "d3f8a9b2c1e4567890abcdef12345678"
+
+    TokenResponse:
+      type: object
+      required:
+        - access_token
+        - token_type
+        - expires_in
+        - refresh_token
+      properties:
+        access_token:
+          type: string
+          description: JWT access token (15-minute expiration)
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMTIzIiwidGVuYW50X2lkIjoidGVuYW50MSIsImlhdCI6MTcwMTM2MDAwMCwiZXhwIjoxNzAxMzYwOTAwLCJzY29wZSI6InJlYWQgd3JpdGUifQ.signature"
+        token_type:
+          type: string
+          enum: [Bearer]
+          description: Token type (always 'Bearer')
+          example: "Bearer"
+        expires_in:
+          type: integer
+          description: Access token expiration time in seconds (900 = 15 minutes)
+          example: 900
+        refresh_token:
+          type: string
+          description: Refresh token (30-day expiration, opaque string)
+          example: "d3f8a9b2c1e4567890abcdef12345678"
+        scope:
+          type: string
+          description: OAuth 2.0 scopes granted (space-separated)
+          example: "read write"
+
+    RevokeResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: Success message
+          example: "Refresh token revoked successfully"
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: OAuth 2.0 error code
+          enum:
+            - invalid_request
+            - invalid_client
+            - invalid_grant
+            - unauthorized_client
+            - unsupported_grant_type
+          example: "invalid_client"
+        error_description:
+          type: string
+          description: Human-readable error description
+          example: "Client authentication failed"
+        error_uri:
+          type: string
+          format: uri
+          description: URI to error documentation (optional)
+          example: "https://docs.chat4all.local/errors/invalid_client"
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT access token obtained from POST /auth/token.
+        Include in Authorization header: `Authorization: Bearer <access_token>`
+
+security: []  # Authentication endpoints do not require authentication

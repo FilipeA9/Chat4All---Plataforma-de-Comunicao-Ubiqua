@@ -1,0 +1,155 @@
+# Alertmanager Configuration (T024)
+# Routes alerts to appropriate channels based on severity
+
+global:
+  # Slack webhook URL (configure via environment variable)
+  slack_api_url: 'https://hooks.slack.com/services/YOUR_SLACK_WEBHOOK'
+  
+  # SMTP settings for email notifications
+  smtp_smarthost: 'smtp.gmail.com:587'
+  smtp_from: 'alerts@chat4all.com'
+  smtp_auth_username: 'alerts@chat4all.com'
+  smtp_auth_password: 'YOUR_EMAIL_PASSWORD'
+  smtp_require_tls: true
+
+# Route tree for alert routing
+route:
+  # Default receiver for all alerts
+  receiver: 'team-slack'
+  
+  # Group alerts by alertname and service to reduce noise
+  group_by: ['alertname', 'service', 'severity']
+  
+  # Wait 30s before sending first notification
+  group_wait: 30s
+  
+  # Wait 5min before sending subsequent notifications
+  group_interval: 5m
+  
+  # Repeat notifications every 4 hours if alert persists
+  repeat_interval: 4h
+  
+  # Child routes for specific alert types
+  routes:
+    # CRITICAL alerts → PagerDuty (immediate response)
+    - match:
+        severity: critical
+      receiver: 'pagerduty'
+      group_wait: 10s
+      repeat_interval: 5m
+      continue: true  # Also send to Slack
+    
+    # CRITICAL alerts → Slack #incidents channel
+    - match:
+        severity: critical
+      receiver: 'slack-incidents'
+      group_wait: 10s
+    
+    # WARNING alerts → Slack #alerts channel
+    - match:
+        severity: warning
+      receiver: 'team-slack'
+      group_wait: 1m
+    
+    # Database alerts → DBA team email
+    - match:
+        service: postgres
+      receiver: 'dba-email'
+      group_by: ['alertname', 'instance']
+    
+    # Kafka alerts → Platform team email
+    - match:
+        service: kafka
+      receiver: 'platform-email'
+      group_by: ['alertname', 'topic']
+
+# Alert receivers configuration
+receivers:
+  # Default Slack channel for team notifications
+  - name: 'team-slack'
+    slack_configs:
+      - channel: '#chat4all-alerts'
+        title: '{{ .GroupLabels.alertname }} - {{ .GroupLabels.service }}'
+        text: |
+          *Summary:* {{ .CommonAnnotations.summary }}
+          *Description:* {{ .CommonAnnotations.description }}
+          *Severity:* {{ .CommonLabels.severity }}
+          *Service:* {{ .CommonLabels.service }}
+          *Instance:* {{ .CommonLabels.instance }}
+        send_resolved: true
+  
+  # Slack channel for critical incidents
+  - name: 'slack-incidents'
+    slack_configs:
+      - channel: '#chat4all-incidents'
+        title: '🚨 CRITICAL: {{ .GroupLabels.alertname }}'
+        text: |
+          *Summary:* {{ .CommonAnnotations.summary }}
+          *Description:* {{ .CommonAnnotations.description }}
+          *Service:* {{ .CommonLabels.service }}
+          *Instance:* {{ .CommonLabels.instance }}
+          *Runbook:* {{ .CommonAnnotations.runbook_url }}
+        send_resolved: true
+        color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+  
+  # PagerDuty for critical alerts (on-call rotation)
+  - name: 'pagerduty'
+    pagerduty_configs:
+      - service_key: 'YOUR_PAGERDUTY_SERVICE_KEY'
+        description: '{{ .CommonAnnotations.summary }}'
+        details:
+          firing: '{{ .Alerts.Firing | len }}'
+          resolved: '{{ .Alerts.Resolved | len }}'
+          alertname: '{{ .GroupLabels.alertname }}'
+          service: '{{ .CommonLabels.service }}'
+          severity: '{{ .CommonLabels.severity }}'
+  
+  # Email for DBA team
+  - name: 'dba-email'
+    email_configs:
+      - to: 'dba-team@chat4all.com'
+        headers:
+          Subject: '[{{ .Status | toUpper }}] Database Alert: {{ .GroupLabels.alertname }}'
+        html: |
+          <h2>Database Alert: {{ .GroupLabels.alertname }}</h2>
+          <p><strong>Summary:</strong> {{ .CommonAnnotations.summary }}</p>
+          <p><strong>Description:</strong> {{ .CommonAnnotations.description }}</p>
+          <p><strong>Instance:</strong> {{ .CommonLabels.instance }}</p>
+          <p><strong>Severity:</strong> {{ .CommonLabels.severity }}</p>
+          <p><strong>Time:</strong> {{ .Alerts.Firing | len }} firing, {{ .Alerts.Resolved | len }} resolved</p>
+  
+  # Email for Platform team
+  - name: 'platform-email'
+    email_configs:
+      - to: 'platform-team@chat4all.com'
+        headers:
+          Subject: '[{{ .Status | toUpper }}] Platform Alert: {{ .GroupLabels.alertname }}'
+        html: |
+          <h2>Platform Alert: {{ .GroupLabels.alertname }}</h2>
+          <p><strong>Summary:</strong> {{ .CommonAnnotations.summary }}</p>
+          <p><strong>Description:</strong> {{ .CommonAnnotations.description }}</p>
+          <p><strong>Service:</strong> {{ .CommonLabels.service }}</p>
+          <p><strong>Severity:</strong> {{ .CommonLabels.severity }}</p>
+
+# Inhibition rules (suppress certain alerts when others fire)
+inhibit_rules:
+  # Inhibit warning alerts if critical alert is firing for same service
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['service', 'instance']
+  
+  # Inhibit database connection alerts if database is down
+  - source_match:
+      alertname: 'DatabaseDown'
+    target_match_re:
+      alertname: 'DatabaseConnection.*'
+    equal: ['instance']
+  
+  # Inhibit Kafka consumer lag alerts if Kafka broker is down
+  - source_match:
+      alertname: 'KafkaBrokerDown'
+    target_match:
+      alertname: 'KafkaConsumerLagHigh'
+    equal: ['cluster']

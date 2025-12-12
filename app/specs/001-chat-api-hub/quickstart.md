@@ -1,18 +1,26 @@
-# Quickstart Guide: Chat4All API Hub
+# Quickstart Guide: Chat4All v2 Platform
 
 **Created**: 2025-11-24  
-**Purpose**: Step-by-step instructions to set up and run Chat4All locally (without Docker)
+**Updated**: 2025-11-30 (Constitution v2.0.0)  
+**Purpose**: Step-by-step instructions to set up and run Chat4All v2 locally for development
 
 ## Overview
 
-This guide will help you set up the complete Chat4All system on your local machine, including:
-- PostgreSQL database
-- Apache Kafka message broker
+This guide will help you set up the complete Chat4All v2 system on your local machine, including:
+- PostgreSQL database (with replication simulation)
+- Apache Kafka message broker (partitioned topics)
+- Redis cache (deduplication, rate limiting)
 - MinIO object storage
-- FastAPI server
-- Background workers (message router, mock connectors)
+- FastAPI + gRPC servers
+- Background workers (message router, channel connectors)
+- Observability stack (Prometheus, Jaeger, ELK - optional for local dev)
 
-**Time to complete**: ~30 minutes (constitution success criterion SC-017)
+**⚠️ Note**: This is a development setup with single-broker Kafka. For production deployments with high availability, see:
+- **[Kafka HA Guide](../../docs/KAFKA_HA_GUIDE.md)**: 3-broker cluster with ZooKeeper quorum
+- **[Production Plan](../002-production-ready/plan.md)**: Complete production architecture
+- Kubernetes orchestration, proper TLS certificates, and full observability stack as per Constitution v2.0.0 principles
+
+**Time to complete**: ~45-60 minutes (development) / ~2 hours (production HA)
 
 ---
 
@@ -583,6 +591,42 @@ Now that Chat4All is running:
 3. **Review Code**: Examine `api/endpoints.py`, `workers/message_router.py`, and `db/models.py`
 4. **Run More Tests**: Execute `pytest` to see full test suite
 5. **Experiment**: Create group conversations, send to multiple channels, upload files
+
+### Production Deployment
+
+For production environments with high availability and zero-downtime operation:
+
+📖 **[Kafka HA Cluster Guide](../../docs/KAFKA_HA_GUIDE.md)**
+
+**Production Features**:
+- **Kafka HA**: 3-broker cluster with ZooKeeper quorum (RF=3, min.insync.replicas=2)
+- **Zero Data Loss**: acks='all' configuration guarantees message durability
+- **Automatic Failover**: Kill any broker → system continues operating with zero downtime
+- **Health Monitoring**: Prometheus metrics (port 9090) + Kafka UI (port 8080)
+- **Load Testing**: Performance validation suite (see [LOAD_TESTING_SUMMARY.md](../../LOAD_TESTING_SUMMARY.md))
+
+**Quick Start (Production)**:
+```bash
+# 1. Start Kafka HA Cluster
+docker-compose -f docker-compose.kafka-cluster.yml up -d
+
+# 2. Verify cluster health (~60 seconds for initialization)
+docker-compose -f docker-compose.kafka-cluster.yml ps
+
+# 3. Access monitoring
+# Kafka UI: http://localhost:8080
+# Health Metrics: http://localhost:9090/metrics
+
+# 4. Run load tests (optional)
+cd tests\load
+.\run_all_tests.ps1
+```
+
+**Production Documentation**:
+- [Production Specification](../002-production-ready/spec.md)
+- [Production Architecture](../002-production-ready/plan.md)
+- [Load Testing Summary](../../LOAD_TESTING_SUMMARY.md)
+- [Kafka HA Implementation](../../docs/KAFKA_HA_IMPLEMENTATION.md)
 
 ---
 

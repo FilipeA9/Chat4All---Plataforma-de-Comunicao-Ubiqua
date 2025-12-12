@@ -2,7 +2,7 @@ services:
   # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
-    container_name: chat4all-postgres
+    container_name: chat4all_postgres
     environment:
       POSTGRES_DB: chat4all
       POSTGRES_USER: chat4all_user
@@ -20,10 +20,27 @@ services:
     networks:
       - chat4all-network
 
+  # Redis - Pub/Sub, Rate Limiting, Caching
+  redis:
+    image: redis:7-alpine
+    container_name: chat4all_redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - chat4all-network
+
   # Zookeeper (required by Kafka)
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
-    container_name: chat4all-zookeeper
+    container_name: chat4all_zookeeper
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
@@ -40,7 +57,7 @@ services:
   # Kafka Broker
   kafka:
     image: confluentinc/cp-kafka:7.5.0
-    container_name: chat4all-kafka
+    container_name: chat4all_kafka
     depends_on:
       zookeeper:
         condition: service_healthy
@@ -66,7 +83,7 @@ services:
   # MinIO Object Storage
   minio:
     image: minio/minio:latest
-    container_name: chat4all-minio
+    container_name: chat4all_minio
     command: server /data --console-address ":9001"
     ports:
       - "9000:9000"
@@ -74,6 +91,7 @@ services:
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_PROMETHEUS_AUTH_TYPE: "public"
     volumes:
       - minio_data:/data
     healthcheck:
@@ -87,7 +105,6 @@ services:
   # MinIO Client - Create bucket on startup
   minio-init:
     image: minio/mc:latest
-    container_name: chat4all-minio-init
     depends_on:
       minio:
         condition: service_healthy
@@ -104,29 +121,40 @@ services:
   # Kafka Topic Initializer
   kafka-init:
     image: confluentinc/cp-kafka:7.5.0
-    container_name: chat4all-kafka-init
     depends_on:
       kafka:
         condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      echo 'Waiting for Kafka to be ready...';
-      sleep 10;
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic message_processing --partitions 3 --replication-factor 1;
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic whatsapp_outgoing --partitions 1 --replication-factor 1;
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic instagram_outgoing --partitions 1 --replication-factor 1;
-      echo 'Kafka topics created successfully';
-      kafka-topics --bootstrap-server kafka:29092 --list;
-      "
+    # Usamos sintaxe de lista [cmd, arg, script] com pipe (|)
+    # Isso evita erros de aspas e garante que o shell entenda as quebras de linha
+    entrypoint: 
+      - /bin/sh
+      - -c
+      - |
+        echo "Waiting for Kafka to be ready..."
+        # Loop: Enquanto o comando falhar (!), aguarde e tente de novo
+        while ! kafka-topics --bootstrap-server kafka:29092 --list > /dev/null 2>&1; do
+          echo "Kafka not accessible yet... retrying in 2s"
+          sleep 2
+        done
+        
+        echo "Kafka is ready! Creating topics..."
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic message_processing --partitions 3 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic whatsapp_outgoing --partitions 1 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic instagram_outgoing --partitions 1 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic message_processing_dlq --partitions 1 --replication-factor 1
+        
+        echo "Kafka topics created successfully"
+        kafka-topics --bootstrap-server kafka:29092 --list
     networks:
       - chat4all-network
 
   # FastAPI Application
   api:
+    container_name: chat4all_api
+    restart: no
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: chat4all-api
     depends_on:
       postgres:
         condition: service_healthy
@@ -134,25 +162,38 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     ports:
       - "8000:8000"
+      - "8443:8443"  # HTTPS port (T015)
     environment:
       DATABASE_URL: postgresql://chat4all_user:chat4all_password@postgres:5432/chat4all
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: chat4all-files
       MINIO_SECURE: "false"
+      JWT_SECRET_KEY: changeme-in-production-use-openssl-rand-hex-32
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 15
+      REFRESH_TOKEN_EXPIRE_DAYS: 30
       TOKEN_EXPIRY_HOURS: 24
       API_HOST: 0.0.0.0
       API_PORT: 8000
       LOG_LEVEL: INFO
+      # TLS 1.3 Configuration (T015)
+      SSL_ENABLED: "false"  # Set to "true" to enable HTTPS
+      SSL_CERT_FILE: /app/certs/server.crt
+      SSL_KEY_FILE: /app/certs/server.key
     volumes:
       - .:/app
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+      - ./certs:/app/certs:ro  # Mount SSL certificates (T015)
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -161,18 +202,21 @@ services:
 
   # Message Router Worker
   worker-router:
+    container_name: chat4all_worker_router
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: chat4all-worker-router
     depends_on:
       kafka:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql://chat4all_user:chat4all_password@postgres:5432/chat4all
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
@@ -182,16 +226,16 @@ services:
     volumes:
       - .:/app
     command: python -m workers.message_router
-    restart: unless-stopped
+    restart: no
     networks:
       - chat4all-network
 
   # WhatsApp Mock Worker
   worker-whatsapp:
+    container_name: chat4all_worker_whatsapp
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: chat4all-worker-whatsapp
     depends_on:
       kafka:
         condition: service_healthy
@@ -209,16 +253,16 @@ services:
     volumes:
       - .:/app
     command: python -m workers.whatsapp_mock
-    restart: unless-stopped
+    restart: no
     networks:
       - chat4all-network
 
   # Instagram Mock Worker
   worker-instagram:
+    container_name: chat4all_worker_instagram
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: chat4all-worker-instagram
     depends_on:
       kafka:
         condition: service_healthy
@@ -236,7 +280,216 @@ services:
     volumes:
       - .:/app
     command: python -m workers.instagram_mock
-    restart: unless-stopped
+    restart: no
+    networks:
+      - chat4all-network
+
+  # Outbox Poller Worker
+  worker-outbox:
+    container_name: chat4all_worker_outbox
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://chat4all_user:chat4all_password@postgres:5432/chat4all
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      LOG_LEVEL: INFO
+    volumes:
+      - .:/app
+    command: python -m workers.outbox_poller
+    restart: no
+    networks:
+      - chat4all-network
+
+  # Message Status Updater Worker
+  worker-status:
+    container_name: chat4all_worker_status
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://chat4all_user:chat4all_password@postgres:5432/chat4all
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: INFO
+    volumes:
+      - .:/app
+    command: python -m workers.message_status_updater
+    restart: no
+    networks:
+      - chat4all-network
+
+  # Prometheus - Metrics Collection
+  prometheus:
+    container_name: chat4all_prometheus
+    image: prom/prometheus:v2.48.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./observability/prometheus_rules.yml:/etc/prometheus/rules.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - chat4all-network
+
+  # Alertmanager - Alert Routing
+  alertmanager:
+    container_name: chat4all_alertmanager
+    image: prom/alertmanager:v0.26.0
+    ports:
+      - "9095:9093"
+    volumes:
+      - ./observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      - alertmanager_data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+#      - '--cluster.advertise-address=0.0.0.0:9093'
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - chat4all-network
+
+  # Jaeger - Distributed Tracing
+  jaeger:
+    container_name: chat4all_jaeger
+    image: jaegertracing/all-in-one:1.52
+    ports:
+      - "5775:5775/udp"
+      - "6831:6831/udp"
+      - "6832:6832/udp"
+      - "5778:5778"
+      - "16686:16686"  # UI
+      - "14268:14268"  # Collector HTTP
+      - "14250:14250"  # Collector gRPC
+      - "9411:9411"    # Zipkin compatible
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+      COLLECTOR_ZIPKIN_HOST_PORT: ":9411"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:14269/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - chat4all-network
+
+  # Loki - Log Aggregation (T115)
+  loki:
+    container_name: chat4all_loki
+    image: grafana/loki:2.9.3
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - chat4all-network
+
+  # Grafana - Visualization and Dashboards (T117)
+  grafana:
+    container_name: chat4all_grafana
+    image: grafana/grafana:10.2.3
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./observability/dashboards_config/dashboard-provisioning.yml:/etc/grafana/provisioning/dashboards/dashboard-provisioning.yml
+      - ./observability/datasources:/etc/grafana/provisioning/datasources
+      - ./observability/grafana:/etc/grafana/provisioning/dashboards
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      #- GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      - prometheus
+      - loki
+      - jaeger
+    networks:
+      - chat4all-network
+      
+  # Kafka Exporter (Essencial para o Dashboard de Kafka)
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: chat4all_kafka_exporter
+    command: --kafka.server=kafka:29092
+    ports:
+      - "9308:9308"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - chat4all-network
+
+  # Redis Exporter (Para métricas do Redis no Prometheus)
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: chat4all_redis_exporter
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+    ports:
+      - "9121:9121"
+    depends_on:
+      - redis
+    networks:
+      - chat4all-network
+
+  # PostgreSQL Exporter (Para métricas do Banco de Dados)
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: chat4all_postgres_exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://chat4all_user:chat4all_password@postgres:5432/chat4all?sslmode=disable"
+    ports:
+      - "9187:9187"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - chat4all-network
+
+  # Node Exporter (Métricas do Host/Kernel - Opcional em Docker Desktop)
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: chat4all_node_exporter
+    ports:
+      - "9100:9100"
     networks:
       - chat4all-network
 
@@ -244,6 +497,14 @@ volumes:
   postgres_data:
     driver: local
   minio_data:
+    driver: local
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  alertmanager_data:
+    driver: local
+  grafana_data:
     driver: local
 
 networks:

@@ -1,210 +1,233 @@
-# Chat4All API Hub
+# Relatório Técnico — Arquitetura, Fluxos, Testes e Decisões do Projeto: Chat4All v2
 
-## 📋 Visão Geral
+**Autores:** Filipe Augusto Lima Silva , Amanda Almeida dos Santos, Guilherme Luís Andrade Borges.
 
-API de comunicação ubíqua para integração multi-canal (WhatsApp, Instagram, etc.). Projeto acadêmico para a disciplina de Sistemas Distribuídos.
+**Data:** 05 de Dezembro de 2025
 
-## 🎯 Funcionalidades
+**Versão:** 2.0
 
-- **Mensagens de Texto**: Conversas privadas e em grupo
-- **Upload de Arquivos**: Suporte a arquivos até 2GB com upload fragmentado
-- **Roteamento Multi-Canal**: Entrega assíncrona via Kafka para WhatsApp/Instagram
-- **Autenticação**: Sistema simples baseado em tokens
+---
 
-## 🏗️ Arquitetura
 
-### Diagrama de Componentes
+## 1. **Introdução e Objetivos**
 
-```
-┌─────────────────┐
-│   API Clients   │
-└────────┬────────┘
-         │ HTTP/REST
-         ↓
-┌─────────────────────────────────────────────┐
-│            FastAPI Application               │
-│  ┌──────────┐  ┌──────────┐  ┌───────────┐ │
-│  │  /auth   │  │  /v1/*   │  │  /files   │ │
-│  └──────────┘  └──────────┘  └───────────┘ │
-└───────┬─────────────────────────────┬───────┘
-        │                             │
-        ↓                             ↓
-┌──────────────┐              ┌──────────────┐
-│  PostgreSQL  │              │    Kafka     │
-│              │              │ ┌──────────┐ │
-│ • users      │              │ │ message_ │ │
-│ • conversations│            │ │processing│ │
-│ • messages   │              │ └────┬─────┘ │
-│ • files      │              └──────┼───────┘
-└──────────────┘                     │
-                                     ↓
-                            ┌────────────────┐
-                            │ Message Router │
-                            │    Worker      │
-                            └───┬────────┬───┘
-                                │        │
-                   ┌────────────┘        └────────────┐
-                   ↓                                  ↓
-          ┌─────────────────┐              ┌──────────────────┐
-          │ WhatsApp Worker │              │ Instagram Worker │
-          │ (Mock Connector)│              │  (Mock Connector)│
-          └─────────────────┘              └──────────────────┘
-                   │                                  │
-                   └──────────────┬───────────────────┘
-                                  ↓
-                          ┌───────────────┐
-                          │  PostgreSQL   │
-                          │ (Status Update)│
-                          └───────────────┘
-```
+Este projeto implementa uma plataforma de mensageria de alta escala, construída para lidar com milhares de mensagens por segundo, manter ordenação por conversa, garantir consistência at-least-once com deduplicação e permitir crescimento horizontal.
+A solução combina API assíncrona, Event Streaming com Kafka, padrão Outbox, Redis para comunicação interna e Observabilidade completa (Prometheus, Grafana e Alertmanager).
 
-### Estrutura de Diretórios
+Os objetivos principais do sistema são:
 
-```
-chat-for-all/
-├── api/              # REST API Layer
-│   ├── endpoints.py  # All HTTP endpoints
-│   ├── schemas.py    # Pydantic request/response models
-│   └── dependencies.py # Dependency injection (auth, db)
-├── core/             # Core Infrastructure
-│   ├── config.py     # Environment configuration
-│   └── security.py   # Password hashing (bcrypt)
-├── db/               # Data Access Layer
-│   ├── models.py     # SQLAlchemy ORM models
-│   ├── repository.py # Database operations
-│   └── database.py   # DB connection and initialization
-├── services/         # External Service Clients
-│   ├── kafka_producer.py # Kafka message publishing
-│   └── minio_client.py   # MinIO file storage
-├── workers/          # Async Message Processors
-│   ├── message_router.py  # Routes messages to channels
-│   ├── whatsapp_mock.py   # WhatsApp connector (mock)
-│   └── instagram_mock.py  # Instagram connector (mock)
-├── tests/            # Test Suite
-│   ├── test_api.py       # Integration tests (API)
-│   ├── test_workers.py   # Unit tests (workers)
-│   ├── test_models.py    # Unit tests (models)
-│   └── conftest.py       # Pytest fixtures
-├── migrations/       # Database Migrations
-│   ├── 001_initial_schema.sql
-│   └── 002_seed_users.sql
-└── main.py           # Application entry point
-```
+* Receber mensagens de clientes com baixa latência.
+* Garantir persistência confiável e entrega consistente.
+* Manter ordenação causal por conversa.
+* Escalar horizontalmente API, workers e pipelines.
+* Fornecer rastreamento, métricas e alertas de ponta a ponta.
+* Permitir tolerância a falhas e rápida recuperação.
 
-### Fluxo de Mensagens
+---
 
-1. **Cliente** envia POST `/v1/messages` com payload (texto ou arquivo)
-2. **API** valida request, cria registro no PostgreSQL com status "accepted"
-3. **API** publica mensagem no Kafka topic `message_processing` (background task)
-4. **Message Router Worker** consome mensagem e roteia para canais:
-   - `channels: ["whatsapp"]` → `whatsapp_outgoing` topic
-   - `channels: ["instagram"]` → `instagram_outgoing` topic
-   - `channels: ["all"]` → ambos os topics
-5. **Channel Workers** (WhatsApp/Instagram) processam e atualizam status para "delivered"
-6. **Cliente** consulta GET `/v1/conversations/{id}/messages` para ver status atualizado
+## 2. **Arquitetura Final Implementada**
 
-## 🚀 Quick Start
+A arquitetura do sistema é composta por **cinco blocos principais**:
 
-Para instruções detalhadas de configuração e execução, consulte:
+### **2.1 API (FastAPI)**
 
-📖 **[specs/001-chat-api-hub/quickstart.md](specs/001-chat-api-hub/quickstart.md)**
+* Endpoints de criação de mensagens, autenticação e health checks.
+* Persistência da mensagem e da entrada de Outbox dentro da mesma transação.
+* Exposição de métricas Prometheus.
+* Lógica de deduplicação com `message_id`.
+* Rate limiting e auditoria.
+  **Arquivos relevantes:**
+  `api/main.py`, `api/endpoints.py`, `api/metrics.py`, `api/auth.py`, `core/audit_logger.py`
 
-O guia completo inclui:
-- Pré-requisitos (Python 3.11+, PostgreSQL, Kafka, MinIO)
-- Instalação passo a passo (~30 minutos)
-- Verificação de funcionamento
-- Troubleshooting
+### **2.2 Banco de Dados (Postgres)**
 
-## 🧪 Desenvolvimento
+* Armazena mensagens e tabela Outbox (`OutboxEvent`).
+* Implementa o padrão **Transactional Outbox** garantindo consistência at-least-once.
+  **Arquivos relevantes:**
+  `db/models.py`, `db/session.py`
 
-```bash
-# Instalar dependências
-pip install -r requirements.txt
+### **2.3 Workers**
 
-# Configurar ambiente
-cp .env.example .env
-# Edite .env com suas configurações
+* **Outbox Poller**: lê a tabela Outbox, publica no Kafka com idempotência e confirma publicação.
+* **Message Router**: recebe eventos e envia mensagens para tópicos particionados (partitioning por `conversation_id`).
+* **Redis Backfill Worker**: recupera estados temporários guardados no Redis após falhas.
+  **Arquivos relevantes:**
+  `workers/outbox_poller.py`, `workers/message_router.py`, `workers/redis_backfill.py`
 
-# Executar testes
-pytest -v tests/
+### **2.4 Kafka (event streaming)**
 
-# Iniciar API
-uvicorn main:app --reload
+* Pipeline assíncrono de entrega de mensagens.
+* Uso de partition key: `conversation:{conversation_id}` para manter **ordem causal** dentro da conversa.
+* Producer com `enable_idempotence=True` e `acks=all`.
+  **Arquivos relevantes:**
+  `workers/message_router.py`, `workers/outbox_poller.py`
 
-# Iniciar workers (em terminais separados)
-python workers/message_router.py
-python workers/whatsapp_mock.py
-python workers/instagram_mock.py
-```
+### **2.5 Redis**
 
-## 📚 Documentação
+* Cache e estado temporário.
+* Pub/Sub interno para operações rápidas.
+* Armazenamento auxiliar para backfill.
+  **Arquivos relevantes:**
+  `services/redis_client.py`, `workers/redis_backfill.py`
 
-### Especificações do Projeto
+### **2.6 Observabilidade**
 
-- **Especificação Completa**: [specs/001-chat-api-hub/spec.md](specs/001-chat-api-hub/spec.md)
-- **Modelo de Dados**: [specs/001-chat-api-hub/data-model.md](specs/001-chat-api-hub/data-model.md)
-- **Contratos API**: [specs/001-chat-api-hub/contracts/api-endpoints.md](specs/001-chat-api-hub/contracts/api-endpoints.md)
-- **Decisões Técnicas**: [specs/001-chat-api-hub/research.md](specs/001-chat-api-hub/research.md)
+* Prometheus: coleta de métricas.
+* Alertmanager: envio de alertas.
+* Grafana: dashboards.
+* OpenTelemetry: tracing e instrumentação.
+  **Arquivos relevantes:**
+  `observability/`, `api/metrics.py`, `core/logging`, OTel configs.
 
-### API Endpoints
+---
 
-#### Autenticação
+## 3. **Decisões Técnicas**
 
-- `POST /auth/token` - Autenticar usuário e obter token
-  - Request: `{"username": "user1", "password": "password123"}`
-  - Response: `{"token": "uuid", "expires_at": "timestamp", ...}`
+As escolhas arquiteturais do projeto seguem critérios de desempenho, escalabilidade e consistência.
 
-#### Conversas
+### **3.1 FastAPI + Assincronismo**
 
-- `POST /v1/conversations` - Criar conversa (privada ou grupo)
-  - Private: 2 membros exatos
-  - Group: 3-100 membros
-- `GET /v1/conversations/{id}/messages` - Listar mensagens com paginação
-  - Query params: `limit` (default: 50), `offset` (default: 0)
+* Minimiza latência de I/O.
+* Adequado para workloads de milhares de requisições por segundo.
 
-#### Mensagens
+### **3.2 Transactional Outbox**
 
-- `POST /v1/messages` - Enviar mensagem (texto ou arquivo)
-  - Suporta idempotência via `message_id`
-  - Channels: `["whatsapp"]`, `["instagram"]`, ou `["all"]`
-  - Status inicial: "accepted" → processamento assíncrono
+* Garante **consistência at-least-once**.
+* Evita o problema clássico de “dupla escrita” (DB + Kafka).
 
-#### Arquivos
+### **3.3 Kafka como backbone**
 
-- `POST /v1/files/initiate` - Iniciar upload (max 2GB)
-  - Retorna `file_id` e URL presigned para upload direto ao MinIO
-- `POST /v1/files/complete` - Finalizar upload
-  - Valida checksum SHA-256 e marca arquivo como "completed"
+* Permite throughput alto e ordenação por partição.
+* Suporta escalabilidade horizontal via consumer groups.
 
-### Documentação Interativa
+### **3.4 Partition Key por conversa**
 
-Quando a API estiver rodando, acesse:
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
+* Garante ordenação causal obrigatória para mensageria.
+* Cada conversa sempre vai para a mesma partição.
 
-## 🔧 Stack Tecnológica
+### **3.5 Redis como acelerador**
 
-- **API**: FastAPI 0.104.1 + Uvicorn 0.24.0
-- **Banco de Dados**: PostgreSQL 15+ + SQLAlchemy 2.0.23
-- **Message Broker**: Apache Kafka 3.5+
-- **Object Storage**: MinIO 7.2.0
-- **Testes**: pytest 7.4.3
+* Evita carga excessiva no banco.
+* Suporta recuperação e pub/sub leve.
 
-## 📝 Princípios do Projeto
+### **3.6 Observabilidade nativa**
 
-Este projeto segue os princípios documentados em [.specify/memory/constitution.md](.specify/memory/constitution.md):
+* Métricas, logs e tracing integrados desde o início.
+* Alertas configuráveis por Prometheus/Alertmanager.
 
-1. **Qualidade de Código**: Python 3.11+, PEP 8, type hints obrigatórios
-2. **Arquitetura Modular**: Separação clara entre API/workers/DB
-3. **TDD**: Testes são NON-NEGOTIABLE
-4. **Stack Compliance**: FastAPI/PostgreSQL/Kafka/MinIO
-5. **Documentation-First**: Especificações antes de código
-6. **Simplicidade MVP**: POC acadêmico, não produção
+### **3.7 Segurança**
 
-## 👥 Autores
+* Autenticação via OAuth2/JWT.
+* Suporte a TLS no gateway (certificados disponíveis).
+* Auditoria de eventos sensíveis.
 
-Projeto desenvolvido para a disciplina de Sistemas Distribuídos - FACULDADE
+---
 
-## 📄 Licença
+## 4. **Testes de Carga e Métricas Coletadas**
 
-Projeto acadêmico - uso educacional
+*(O projeto contém instrumentação, mas não contém artefatos de testes. O conteúdo abaixo descreve o que o sistema mede e como medir.)*
+
+### **4.1 Métricas disponíveis**
+
+A API expõe métricas via `/metrics`:
+
+* Latência HTTP (histogram).
+* Contadores por endpoint.
+* Erros de aplicação.
+* Métricas de workers (process uptime, eventos publicados, falhas, retries).
+* Lag de consumidores de Kafka (via exporters).
+* Redis health e tempo de resposta.
+
+### **4.2 Processo sugerido de teste de carga**
+
+Ferramentas recomendadas:
+
+* `k6`, `wrk`, `ghz`, `locust`.
+
+Caminho medido:
+
+* `cliente → API → DB → Outbox → Worker → Kafka`
+
+As principais métricas semânticas disponíveis:
+
+* **p50 / p95 / p99** de latência da API.
+* Throughput de produção no Kafka (msg/s).
+* Tempo médio de publicação do outbox.
+* Tamanho da fila e lag por worker.
+* Porcentagem de deduplicação.
+
+### **4.3 Resultados típicos esperados**
+
+Com a arquitetura implementada:
+
+* Latência API típica: **10–40ms** no ambiente real (sem contenção).
+* Throughput: milhares de mensagens/s com scaling horizontal.
+* Outbox processando em bateladas (poll interval configurável).
+
+---
+
+## 5. **Falhas Simuladas e Recuperação**
+
+A arquitetura prevê mecanismos de tolerância a falhas:
+
+### **5.1 Falha no Kafka**
+
+* O Outbox Poller continua tentando publicar.
+* Sem perda de mensagens graças à persistência no DB.
+
+### **5.2 Falha no Redis**
+
+* Circuit breaker evita travar a API.
+* Backfill tenta reconstruir estados assim que o Redis volta.
+
+### **5.3 Falha de worker**
+
+* Outro worker do consumer group assume automaticamente (Kafka).
+* Outbox segue acumulando eventos sem perda.
+
+### **5.4 Falha parcial na API**
+
+* Health checks permitem remoção automática de instâncias defeituosas.
+* Mensagens já persistidas continuam fluindo pelos workers.
+
+### **5.5 Crash durante escrita**
+
+* Commit da mensagem e da entrada do Outbox ocorre **numa única transação**.
+* Evita mensagens órfãs ou publicações inconsistentes.
+
+---
+
+## 6. **Limitações e Melhorias Futuras**
+
+### **6.1 Infraestrutura local**
+
+* O projeto está configurado para ambiente **docker-compose**, não para cluster real.
+* Falta HA de Kafka, Redis Cluster/Sentinel e Postgres com failover.
+
+### **6.2 Gateway TLS**
+
+* Certificados existem, mas a **terminação TLS no gateway não está implementada**.
+* Recomendado adicionar:
+
+  * NGINX/Traefik/Ingress Controller
+  * Renovação automática de certificados
+
+### **6.3 Tracing incompleto nos workers**
+
+* Há instrumentação parcial; recomendável integrar todos os passos:
+  API → Outbox → Poller → Kafka → Router → Consumer final.
+
+### **6.4 Sequenciamento explícito**
+
+* Ordem por conversa depende do Kafka.
+* Não existe `sequence_number`.
+* Caso seja necessário reprocessar ou migrar conversas, um campo seq seria útil.
+
+### **6.5 Backpressure**
+
+* A API não implementa controle explícito de saturação do sistema.
+
+### **6.6 Ausência de testes automatizados de carga**
+
+* A instrumentação existe, mas não há scripts de carga.
+* Recomendado criar pipelines de benchmark contínuo.

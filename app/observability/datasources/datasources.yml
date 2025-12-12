@@ -1,0 +1,11 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    url: http://prometheus:9090  # <-- MUDANÇA CRÍTICA: Use o nome do serviço
+    access: proxy
+    isDefault: true
+    uid: b3b1aa70-0e55-4a24-9a6e-97478dd22474 # Deve corresponder ao uid do seu dashboard
+    version: 1
+    editable: true

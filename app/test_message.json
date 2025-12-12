@@ -1,0 +1,9 @@
+﻿{
+  "message_id": "cbef6302-8b78-497c-b52b-d592b946d8d5",
+  "conversation_id": 3,
+  "payload": {
+    "type": "text",
+    "content": "Teste de mensagem após correção JWT!"
+  },
+  "channels": ["whatsapp", "instagram"]
+}

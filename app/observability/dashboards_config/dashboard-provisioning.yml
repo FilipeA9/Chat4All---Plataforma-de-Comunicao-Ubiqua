@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: 'Chat4All Provisioning'
+    orgId: 1
+    folder: '' # Coloca o dashboard na pasta 'General'
+    type: file
+    disableDeletion: false # Permite que o Grafana exclua o painel se o arquivo JSON for removido
+    editable: true # Permite que o painel seja editado via UI do Grafana
+    options:
+      path: /etc/grafana/provisioning/dashboards
