@@ -4,7 +4,7 @@
 
 **Data:** 05 de Dezembro de 2025
 
-**Versão:** 1.0
+**Versão:** 2.0
 
 ---
 

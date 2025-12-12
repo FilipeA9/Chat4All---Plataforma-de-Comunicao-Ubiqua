@@ -4,7 +4,7 @@
 
 **Data:** 05 de Dezembro de 2025
 
-**Versão:** 1.0
+**Versão:** 2.0
 
 ---
 
@@ -42,7 +42,7 @@ Principais atores:
 
 ## **2.2 Arquitetura Lógica (Classes)**
 
-![Classes](diagramas/Diagramas/diagrama_de_classes.png)
+![Classes](./Diagramas/diagrama_de_classes.png)
 
 Componentes modelados no código:
 
@@ -65,11 +65,11 @@ Componentes modelados no código:
 
 ### **Sequência resumida**
 
-![Sequência](diagramas/Diagramas/diagrama_de_sequência.png)
+![Sequência](./Diagramas/diagrama_de_sequência.png)
 
 ### **Sequência completa**
 
-![Sequência Full](diagramas/Diagramas/diagrama_de_sequencia_full.png)
+![Sequência Full](./Diagramas/diagrama_de_sequencia_full.png)
 
 Fluxo interno:
 
@@ -83,7 +83,7 @@ Fluxo interno:
 
 ## **2.4 Arquitetura de Estados**
 
-![Estados](diagramas/Diagramas/diagrama_de_estados.png)
+![Estados](./Diagramas/diagrama_de_estados.png)
 
 Ciclos do elemento **mensagem**:
 
