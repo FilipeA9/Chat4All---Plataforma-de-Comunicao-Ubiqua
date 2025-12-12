@@ -330,6 +330,35 @@ services:
     networks:
       - chat4all-network
 
+  # File Merge Worker
+  worker-file-merge:
+    container_name: chat4all_worker_file_merge
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://chat4all_user:chat4all_password@postgres:5432/chat4all
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: chat4all-files
+      MINIO_SECURE: "false"
+      LOG_LEVEL: INFO
+    volumes:
+      - .:/app
+    command: python -m workers.file_merge_worker
+    restart: no
+    networks:
+      - chat4all-network
+
   # Prometheus - Metrics Collection
   prometheus:
     container_name: chat4all_prometheus

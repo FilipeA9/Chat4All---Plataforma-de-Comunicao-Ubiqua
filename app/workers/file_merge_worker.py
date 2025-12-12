@@ -134,10 +134,10 @@ class FileMergeWorker:
                 "timestamp": datetime.utcnow().isoformat()
             }
             
-            self.kafka_producer.send(
+            self.kafka_producer.publish_message(
                 topic='file_upload_completed',
-                key=upload_id,
-                value=json.dumps(completion_event)
+                message=completion_event,
+                partition_key=upload_id
             )
             
             logger.info(

@@ -74,7 +74,7 @@ def validate_file_message(message_data: dict) -> bool:
             logger.error(f"File metadata not found for file_id: {file_id}")
             return False
         
-        if file_metadata.status.value != "completed":
+        if file_metadata.status.value != "COMPLETED":
             logger.error(f"File upload not completed for file_id: {file_id}")
             return False
         

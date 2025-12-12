@@ -410,7 +410,7 @@ def create_conversation(
     
     # Create conversation
     conversation = repository.create_conversation(
-        conversation_type=ConversationType(request.type),
+        conversation_type=ConversationType(request.type.upper()),
         name=request.name,
         description=request.description
     )
@@ -879,13 +879,21 @@ async def send_message(
     
     if payload_dict["type"] == "file":
         # Validate file exists
-        file_metadata = repository.get_file_metadata(UUID(payload_dict["file_id"]))
+        # file_id pode ser UUID ou string, dependendo de como foi serializado
+        file_id = payload_dict["file_id"]
+        if isinstance(file_id, UUID):
+            file_id_uuid = file_id
+            # Converte para string para armazenamento JSON
+            payload_dict["file_id"] = str(file_id)
+        else:
+            file_id_uuid = UUID(file_id)
+        file_metadata = repository.get_file_metadata(file_id_uuid)
         if not file_metadata:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="File not found"
             )
-        if file_metadata.status.value != "completed":
+        if file_metadata.status.value.upper() != "COMPLETED":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="File upload not completed"
@@ -1522,10 +1530,10 @@ def complete_chunked_file_upload(
         "timestamp": datetime.utcnow().isoformat()
     }
     
-    kafka_producer.send(
+    kafka_producer.publish_message(
         topic="file_merge_requests",
-        key=str(upload_id),
-        value=json.dumps(merge_event)
+        message=merge_event,
+        partition_key=str(upload_id)
     )
     
     estimated_completion = datetime.utcnow() + timedelta(seconds=30)  # Estimate based on file size

@@ -24,16 +24,23 @@ propagator = TraceContextTextMapPropagator()
 
 # Circuit breaker for Kafka (T058)
 # Protects against cascading failures when Kafka is unavailable
+class KafkaCircuitBreakerListener(pybreaker.CircuitBreakerListener):
+    """Listener for circuit breaker state changes."""
+    
+    def state_change(self, cb, old_state, new_state):
+        logger.warning(f"Circuit breaker {cb.name} state changed: {old_state.name} -> {new_state.name}")
+    
+    def failure(self, cb, exc):
+        logger.warning(f"Circuit breaker {cb.name} failure: {exc}")
+    
+    def success(self, cb):
+        logger.debug(f"Circuit breaker {cb.name} success")
+
 kafka_circuit_breaker = pybreaker.CircuitBreaker(
     fail_max=5,  # Open circuit after 5 failures
-    #timeout=60,  # Keep circuit open for 60 seconds
     reset_timeout=30,  # Try half-open after 30 seconds
     name="kafka_producer",
-    listeners=[
-        lambda breaker, _: logger.warning(f"Circuit breaker {breaker.name} opened - Kafka unavailable"),
-        lambda breaker: logger.info(f"Circuit breaker {breaker.name} closed - Kafka restored"),
-        lambda breaker: logger.info(f"Circuit breaker {breaker.name} half-open - Testing Kafka connection")
-    ]
+    listeners=[KafkaCircuitBreakerListener()]
 )
 
 
@@ -57,9 +64,9 @@ class KafkaProducerClient:
                 enable_idempotence=True,  # Ensures exactly-once semantics at producer level
                 acks='all',  # Wait for all in-sync replicas to acknowledge (critical for RF=3)
                 retries=5,  # Retry failed sends up to 5 times
-                max_in_flight_requests_per_connection=5,  # Max unacknowledged requests
+                max_in_flight_requests_per_connection=1,  # Required for idempotent producer
                 # Additional reliability settings
-                compression_type='snappy',  # Compress messages for network efficiency
+                compression_type='gzip',  # Compress messages for network efficiency (no external deps)
                 linger_ms=10,  # Batch messages for up to 10ms for throughput
                 batch_size=32768,  # 32KB batch size
                 # Timeout settings for HA cluster (T051)

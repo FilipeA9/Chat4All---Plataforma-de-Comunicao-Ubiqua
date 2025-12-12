@@ -20,24 +20,24 @@ from db.database import Base
 # ENUM Types
 class ConversationType(str, enum.Enum):
     """Type of conversation."""
-    PRIVATE = "private"
-    GROUP = "group"
+    PRIVATE = "PRIVATE"
+    GROUP = "GROUP"
 
 
 class MessageStatus(str, enum.Enum):
     """Status of message delivery."""
-    ACCEPTED = "accepted"
-    PROCESSING = "processing"
-    DELIVERED = "delivered"
-    FAILED = "failed"
+    ACCEPTED = "ACCEPTED"
+    PROCESSING = "PROCESSING"
+    DELIVERED = "DELIVERED"
+    FAILED = "FAILED"
 
 
 class FileStatus(str, enum.Enum):
     """Status of file upload."""
-    PENDING = "pending"
-    UPLOADING = "uploading"
-    COMPLETED = "completed"
-    FAILED = "failed"
+    PENDING = "PENDING"
+    UPLOADING = "UPLOADING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
 
 
 # Models
@@ -62,7 +62,7 @@ class Conversation(Base):
     __tablename__ = "conversations"
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    type = Column(SQLEnum(ConversationType), nullable=False)
+    type = Column(SQLEnum(ConversationType, name='conversation_type', create_type=False), nullable=False)
     name = Column(String(100), nullable=True)  # For group conversations
     description = Column(Text, nullable=True)  # For group conversations
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -95,7 +95,7 @@ class Message(Base):
     conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=False, index=True)
     sender_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     payload = Column(JSON, nullable=False)  # {"type": "text", "content": "..."} or {"type": "file", "file_id": "..."}
-    status = Column(SQLEnum(MessageStatus), default=MessageStatus.ACCEPTED, nullable=False)
+    status = Column(SQLEnum(MessageStatus, name='message_status', create_type=False), default=MessageStatus.ACCEPTED, nullable=False)
     channels = Column(JSON, nullable=False)  # ["whatsapp", "instagram"] or ["all"]
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -112,7 +112,7 @@ class MessageStatusHistory(Base):
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     message_id = Column(UUID(as_uuid=True), ForeignKey("messages.id"), nullable=False, index=True)
-    status = Column(SQLEnum(MessageStatus), nullable=False)
+    status = Column(SQLEnum(MessageStatus, name='message_status', create_type=False), nullable=False)
     channel = Column(String(50), nullable=True)  # Which channel this status update is for
     timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
     details = Column(JSON, nullable=True)  # Additional context
@@ -264,7 +264,7 @@ class File(Base):
     mime_type = Column(String(100), nullable=False)
     checksum_sha256 = Column(String(64), nullable=True)  # SHA-256 of complete merged file
     storage_key = Column(String(500), nullable=True)  # MinIO key after merge (e.g., "files/{upload_id}")
-    status = Column(SQLEnum(FileStatus), default=FileStatus.PENDING, nullable=False)
+    status = Column(SQLEnum(FileStatus, name='file_status', create_type=False), default=FileStatus.PENDING, nullable=False)
     chunk_size = Column(Integer, nullable=False)  # Chunk size in bytes (5-10MB recommended)
     total_chunks = Column(Integer, nullable=False)  # ceil(file_size / chunk_size)
     uploaded_chunks = Column(Integer, default=0, nullable=False)  # Count of uploaded chunks

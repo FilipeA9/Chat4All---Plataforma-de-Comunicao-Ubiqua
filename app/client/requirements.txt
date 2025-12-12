@@ -1,0 +1,4 @@
+# Dependências do cliente Chat4All
+requests>=2.28.0
+websockets>=10.4
+colorama>=0.4.6
