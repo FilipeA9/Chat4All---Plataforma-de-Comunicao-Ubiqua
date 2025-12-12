@@ -2,19 +2,10 @@
 
 ## Passo 1: Iniciar os Serviços
 
-### Opção A: Ambiente de Desenvolvimento (Single-Broker)
+### Ambiente de Desenvolvimento (Single-Broker)
 ```bash
 docker-compose up -d
 ```
-
-### Opção B: Ambiente de Produção (Kafka HA Cluster)
-```bash
-docker-compose -f docker-compose.kafka-cluster.yml up -d
-```
-
-**Recomendação**: Começar com Opção A para testes iniciais.
-
----
 
 ## Passo 2: Verificar Status dos Containers
 

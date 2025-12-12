@@ -490,11 +490,13 @@ def list_conversations(
     # Query conversation_view materialized view
     # Using text() for raw SQL since we're querying a materialized view
     query = text("""
+        REFRESH MATERIALIZED VIEW conversation_view;
         SELECT 
             conversation_id,
             conversation_type,
             conversation_name,
             description,
+            participant_usernames,
             last_message_timestamp,
             last_message_payload,
             last_message_sender_username,

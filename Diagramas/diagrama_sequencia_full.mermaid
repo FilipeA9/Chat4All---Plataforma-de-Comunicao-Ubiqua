@@ -1,0 +1,75 @@
+sequenceDiagram
+    autonumber
+    actor Client as Cliente (App/Web)
+    participant API as Chat4All API
+    participant Async as Processamento Async (Kafka/Workers)
+    participant DB as Banco de Dados/Storage
+
+    note over Client, DB: O Cliente deve obter o token antes de qualquer outra operação.
+
+    %% ===============================================
+    %% 1. FLUXO DE LOGIN (Authentication)
+    %% ===============================================
+    rect rgb(240, 248, 255)
+    note right of Client: Rota: POST /auth/token
+    Client->>API: Envia Credenciais (username, password, grant_type="password")
+    API->>DB: Valida credenciais
+    DB-->>API: Credenciais OK
+    API-->>Client: 200 OK (access_token, refresh_token)
+    note left of Client: Cliente armazena o "access_token" para usar nos headers seguintes.
+    end
+
+    %% ===============================================
+    %% 2. LISTAR MENSAGENS DA CONVERSA
+    %% ===============================================
+    rect rgb(245, 255, 245)
+    note right of Client: Rota: GET /v1/conversations/{id}/messages
+    Client->>API: Request com Header "Bearer {token}"
+    API->>API: Valida Token e Permissão
+    API->>DB: Consulta histórico de mensagens
+    DB-->>API: Retorna registros
+    API-->>Client: 200 OK (JSON Array de mensagens)
+    end
+
+    %% ===============================================
+    %% 3. ENVIAR MENSAGEM DE TEXTO
+    %% ===============================================
+    rect rgb(255, 250, 240)
+    note right of Client: Rota: POST /v1/messages
+    Client->>API: Request com Header "Bearer {token}"<br/>Payload: {conv_id, type="text", content="..."}
+    API->>API: Valida Token e Permissão
+    API->>Async: Publica evento de mensagem (Kafka)
+    note right of API: Processamento é assíncrono
+    API-->>Client: 202 Accepted (status="accepted", message_id)
+    Async->>DB: Worker persiste mensagem e notifica canais
+    end
+
+    %% ===============================================
+    %% 4. FLUXO DE ENVIO DE ARQUIVO (Chunked Upload)
+    %% ===============================================
+    rect rgb(255, 245, 255)
+    note right of Client: Fluxo em 3 etapas para arquivos grandes
+
+    %% Etapa 4a: Iniciar
+    note right of Client: Passo 1: POST /v1/files/initiate
+    Client->>API: Header "Bearer {token}"<br/>Metadados (filename, size, mime_type)
+    API->>DB: Cria sessão de upload
+    API-->>Client: 201 Created (upload_id, chunk_size, total_chunks)
+
+    %% Etapa 4b: Enviar Chunks (Loop)
+    loop Para cada Chunk do arquivo
+        note right of Client: Passo 2: POST /v1/files/{upload_id}/chunks
+        Client->>API: Header "Bearer {token}"<br/>Query (chunk_number=N)<br/>Body (Binary Data do Chunk)
+        API->>DB: Salva chunk temporariamente (MinIO/S3)
+        API-->>Client: 200 OK (Chunk recebido)
+    end
+
+    %% Etapa 4c: Completar
+    note right of Client: Passo 3: POST /v1/files/{upload_id}/complete
+    Client->>API: Header "Bearer {token}"<br/>Solicita finalização
+    API->>API: Verifica se todos os chunks chegaram
+    API->>Async: Inicia job de "Merge" dos chunks
+    API-->>Client: 200 OK (Arquivo finalizado, file_id gerado)
+    note left of Client: Agora o Cliente pode usar este file_id<br/>no payload da rota POST /v1/messages.
+    Async->>DB: Worker une chunks e atualiza status para COMPLETED
+    end
