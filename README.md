@@ -1,4 +1,4 @@
-# ** Documento de Arquitetura — Plataforma de Mensageria**
+# **Documento de Arquitetura — Plataforma de Mensageria**
 
 **Autores:** Filipe Augusto Lima Silva , Amanda Almeida dos Santos, Guilherme Luís Andrade Borges.
 
