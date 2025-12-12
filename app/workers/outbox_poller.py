@@ -31,6 +31,7 @@ import time
 import sys
 from typing import List
 from datetime import datetime
+from prometheus_client import start_http_server
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from kafka import KafkaProducer
@@ -486,6 +487,10 @@ class OutboxPoller:
 
 def main():
     """Main entry point for outbox poller worker."""
+
+    print("Iniciando servidor de métricas Prometheus na porta 8000...")
+    start_http_server(8000)
+
     poller = OutboxPoller()
     poller.run()
 

@@ -140,7 +140,7 @@
       "gridPos": {"x": 0, "y": 16, "w": 6, "h": 4},
       "targets": [
         {
-          "expr": "rate(rate_limit_exceeded_total{service=\"chat4all-api\"}[5m])",
+          "expr": "rate(rate_limit_exceeded_total{service=\"chat4all-api\"}[5m]) OR on() vector(0)",
           "refId": "A"
         }
       ],
