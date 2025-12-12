@@ -28,7 +28,7 @@ A plataforma segue um modelo orientado a eventos, com API assíncrona, armazenam
 
 ## **2.1 Visão Geral (Use Case)**
 
-![Casos de Uso](diagramas/Diagramas/diagrama_casos_de_uso.png)
+![Casos de Uso](./Diagramas/diagrama_casos_de_uso.png)
 
 Principais atores:
 
