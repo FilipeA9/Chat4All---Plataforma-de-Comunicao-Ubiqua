@@ -1,6 +1,6 @@
 {
   "title": "Chat4All - Message Pipeline",
-  "description": "End-to-end message processing metrics including Kafka, workers, and delivery",
+  "description": "End-to-end message processing metrics (Requires custom instrumentation for business logic)",
   "tags": ["chat4all", "messages", "kafka", "pipeline"],
   "timezone": "browser",
   "editable": true,
@@ -14,6 +14,7 @@
     {
       "id": 1,
       "title": "Message Throughput (msg/sec)",
+      "description": "REQUIRES CODE INSTRUMENTATION: messages_processed_total",
       "type": "graph",
       "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
       "targets": [
@@ -35,24 +36,15 @@
     },
     {
       "id": 2,
-      "title": "Message Processing Latency (P50, P95, P99)",
+      "title": "Message Processing Latency (P95)",
+      "description": "REQUIRES CODE INSTRUMENTATION: message_processing_duration_seconds",
       "type": "graph",
       "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, rate(message_processing_duration_seconds_bucket[5m]))",
-          "legendFormat": "P50",
-          "refId": "A"
-        },
-        {
           "expr": "histogram_quantile(0.95, rate(message_processing_duration_seconds_bucket[5m]))",
-          "legendFormat": "P95",
-          "refId": "B"
-        },
-        {
-          "expr": "histogram_quantile(0.99, rate(message_processing_duration_seconds_bucket[5m]))",
-          "legendFormat": "P99",
-          "refId": "C"
+          "legendFormat": "P95 Latency",
+          "refId": "A"
         }
       ],
       "yaxes": [
@@ -61,163 +53,32 @@
       ]
     },
     {
-      "id": 3,
-      "title": "Outbox Events - Pending",
-      "type": "graph",
-      "gridPos": {"x": 0, "y": 8, "w": 8, "h": 6},
-      "targets": [
-        {
-          "expr": "outbox_pending_events",
-          "legendFormat": "Pending Events",
-          "refId": "A"
-        }
-      ],
-      "yaxes": [
-        {"format": "short", "label": "Events"},
-        {"format": "short"}
-      ],
-      "alert": {
-        "name": "High Outbox Backlog",
-        "conditions": [
-          {
-            "evaluator": {"params": [1000], "type": "gt"},
-            "operator": {"type": "and"},
-            "query": {"params": ["A", "5m", "now"]},
-            "reducer": {"params": [], "type": "avg"},
-            "type": "query"
-          }
-        ],
-        "executionErrorState": "alerting",
-        "frequency": "1m",
-        "handler": 1,
-        "message": "Outbox event backlog exceeding 1000 events",
-        "noDataState": "no_data"
-      }
-    },
-    {
-      "id": 4,
-      "title": "Outbox Publishing Rate",
-      "type": "graph",
-      "gridPos": {"x": 8, "y": 8, "w": 8, "h": 6},
-      "targets": [
-        {
-          "expr": "rate(outbox_published_total[5m])",
-          "legendFormat": "{{event_type}} - Published",
-          "refId": "A"
-        },
-        {
-          "expr": "rate(outbox_failed_total[5m])",
-          "legendFormat": "{{event_type}} - Failed",
-          "refId": "B"
-        }
-      ],
-      "yaxes": [
-        {"format": "ops", "label": "Events/sec"},
-        {"format": "short"}
-      ]
-    },
-    {
-      "id": 5,
-      "title": "DLQ Messages",
-      "type": "stat",
-      "gridPos": {"x": 16, "y": 8, "w": 8, "h": 6},
-      "targets": [
-        {
-          "expr": "increase(dlq_messages_total[1h])",
-          "refId": "A"
-        }
-      ],
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {"color": "green", "value": null},
-              {"color": "yellow", "value": 1},
-              {"color": "red", "value": 10}
-            ]
-          }
-        }
-      }
-    },
-    {
       "id": 6,
       "title": "Kafka Consumer Lag by Topic",
+      "description": "FIXED: Uses kafka-exporter metrics",
       "type": "graph",
-      "gridPos": {"x": 0, "y": 14, "w": 12, "h": 8},
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
       "targets": [
         {
-          "expr": "kafka_consumer_lag",
-          "legendFormat": "{{topic}} - Partition {{partition}}",
+          "expr": "kafka_consumergroup_lag",
+          "legendFormat": "{{topic}} (Group: {{consumergroup}})",
           "refId": "A"
         }
       ],
       "yaxes": [
         {"format": "short", "label": "Messages Behind"},
         {"format": "short"}
-      ],
-      "alert": {
-        "name": "High Kafka Consumer Lag",
-        "conditions": [
-          {
-            "evaluator": {"params": [10000], "type": "gt"},
-            "operator": {"type": "and"},
-            "query": {"params": ["A", "5m", "now"]},
-            "reducer": {"params": [], "type": "max"},
-            "type": "query"
-          }
-        ],
-        "executionErrorState": "alerting",
-        "frequency": "1m",
-        "handler": 1,
-        "message": "Kafka consumer lag exceeding 10,000 messages",
-        "noDataState": "no_data"
-      }
-    },
-    {
-      "id": 7,
-      "title": "Message Router - Channel Distribution",
-      "type": "piechart",
-      "gridPos": {"x": 12, "y": 14, "w": 12, "h": 8},
-      "targets": [
-        {
-          "expr": "sum by (channel) (rate(messages_processed_total{worker=\"message_router\"}[5m]))",
-          "legendFormat": "{{channel}}",
-          "refId": "A"
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "right",
-          "values": ["value", "percent"]
-        },
-        "pieType": "pie",
-        "tooltip": {
-          "mode": "single"
-        }
-      }
+      ]
     },
     {
       "id": 8,
       "title": "Worker Health Status",
+      "description": "FIXED: Checks if Prometheus can scrape the workers",
       "type": "table",
-      "gridPos": {"x": 0, "y": 22, "w": 12, "h": 6},
+      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
       "targets": [
         {
-          "expr": "up{job=~\"chat4all-workers.*\"}",
+          "expr": "up{job=\"chat4all-workers\"}",
           "format": "table",
           "instant": true,
           "refId": "A"
@@ -228,152 +89,69 @@
           "id": "organize",
           "options": {
             "excludeByName": {"Time": true, "__name__": true},
-            "indexByName": {},
             "renameByName": {
-              "instance": "Instance",
-              "job": "Worker",
-              "Value": "Status"
-            }
-          }
-        },
-        {
-          "id": "calculateField",
-          "options": {
-            "alias": "Health",
-            "binary": {
-              "left": "Status",
-              "operator": "==",
-              "right": "1"
-            },
-            "mode": "binary",
-            "reduce": {
-              "reducer": "sum"
+              "instance": "Worker Instance",
+              "worker_type": "Type",
+              "Value": "Status (1=UP)"
             }
           }
         }
       ]
     },
     {
-      "id": 9,
-      "title": "Message Failure Rate (%)",
-      "type": "graph",
-      "gridPos": {"x": 12, "y": 22, "w": 12, "h": 6},
-      "targets": [
-        {
-          "expr": "100 * rate(messages_processed_total{status=\"failed\"}[5m]) / rate(messages_processed_total[5m])",
-          "legendFormat": "{{worker}}",
-          "refId": "A"
-        }
-      ],
-      "yaxes": [
-        {"format": "percent", "label": "Failure Rate", "max": 100},
-        {"format": "short"}
-      ],
-      "alert": {
-        "name": "High Message Failure Rate",
-        "conditions": [
-          {
-            "evaluator": {"params": [5], "type": "gt"},
-            "operator": {"type": "and"},
-            "query": {"params": ["A", "10m", "now"]},
-            "reducer": {"params": [], "type": "avg"},
-            "type": "query"
-          }
-        ],
-        "executionErrorState": "alerting",
-        "frequency": "1m",
-        "handler": 1,
-        "message": "Message failure rate exceeding 5%",
-        "noDataState": "no_data"
-      }
-    },
-    {
-      "id": 10,
-      "title": "File Processing Stats",
+      "id": 3,
+      "title": "Pending Outbox Events",
+      "description": "REQUIRES CODE INSTRUMENTATION: outbox_pending_events",
       "type": "stat",
-      "gridPos": {"x": 0, "y": 28, "w": 6, "h": 4},
+      "gridPos": {"x": 0, "y": 16, "w": 8, "h": 6},
       "targets": [
         {
-          "expr": "rate(file_chunks_uploaded_total[5m])",
+          "expr": "outbox_pending_events",
           "refId": "A"
         }
       ],
       "options": {
         "colorMode": "background",
-        "graphMode": "area",
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value_and_name"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ops",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {"color": "green", "value": null},
-              {"color": "yellow", "value": 5},
-              {"color": "red", "value": 20}
-            ]
-          }
-        }
+        "graphMode": "area"
       }
     },
     {
-      "id": 11,
-      "title": "File Upload Success Rate (%)",
-      "type": "gauge",
-      "gridPos": {"x": 6, "y": 28, "w": 6, "h": 4},
+      "id": 5,
+      "title": "DLQ Messages (Total)",
+      "description": "REQUIRES CODE INSTRUMENTATION: dlq_messages_total",
+      "type": "stat",
+      "gridPos": {"x": 8, "y": 16, "w": 8, "h": 6},
       "targets": [
         {
-          "expr": "100 * rate(file_uploads_total{status=\"completed\"}[5m]) / rate(file_uploads_total[5m])",
+          "expr": "increase(dlq_messages_total[1h])",
           "refId": "A"
         }
       ],
       "options": {
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "min": 0,
-          "max": 100,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {"color": "red", "value": null},
-              {"color": "yellow", "value": 90},
-              {"color": "green", "value": 99}
-            ]
-          }
-        }
+        "colorMode": "background",
+        "graphMode": "none"
       }
     },
     {
       "id": 12,
-      "title": "Redis Pub/Sub Operations",
+      "title": "Redis Pub/Sub Activity",
+      "description": "FIXED: Uses redis-exporter metrics",
       "type": "graph",
-      "gridPos": {"x": 12, "y": 28, "w": 12, "h": 4},
+      "gridPos": {"x": 16, "y": 16, "w": 8, "h": 6},
       "targets": [
         {
-          "expr": "rate(redis_pubsub_operations_total{operation=\"publish\"}[5m])",
-          "legendFormat": "Publish",
+          "expr": "rate(redis_commands_total{cmd=\"publish\"}[5m])",
+          "legendFormat": "Publish Cmds",
           "refId": "A"
         },
         {
-          "expr": "rate(redis_pubsub_operations_total{operation=\"subscribe\"}[5m])",
-          "legendFormat": "Subscribe",
+          "expr": "redis_pubsub_channels",
+          "legendFormat": "Active Channels",
           "refId": "B"
         }
       ],
       "yaxes": [
-        {"format": "ops", "label": "Operations/sec"},
-        {"format": "short"}
+        {"format": "short", "label": "Count"}
       ]
     }
   ]

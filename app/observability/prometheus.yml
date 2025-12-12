@@ -45,12 +45,12 @@ scrape_configs:
     
     # For scaled API instances (docker-compose up --scale api=3)
     # Docker DNS will load-balance across instances
-    dns_sd_configs:
-      - names:
-          - 'api'
-        type: 'A'
-        port: 8000
-        refresh_interval: 30s
+    # dns_sd_configs:
+    #   - names:
+    #       - 'api'
+    #     type: 'A'
+    #     port: 8000
+    #     refresh_interval: 30s
   
   # Scrape Chat4All worker instances
   - job_name: 'chat4all-workers'
@@ -59,13 +59,13 @@ scrape_configs:
     metrics_path: '/metrics'
     static_configs:
       - targets:
-          - 'worker:9091'  # Outbox poller worker
+          - 'worker-outbox:8000'  # Outbox poller worker
         labels:
           service: 'chat4all-worker'
           worker_type: 'outbox-poller'
       
       - targets:
-          - 'message-router:9092'  # Message router worker
+          - 'worker-router:8000'  # Message router worker
         labels:
           service: 'chat4all-worker'
           worker_type: 'message-router'

@@ -1,6 +1,6 @@
 {
   "title": "Chat4All - Database Performance",
-  "description": "PostgreSQL connection pool, query performance, and database health metrics",
+  "description": "PostgreSQL connection pool, TPS, and database health metrics",
   "tags": ["chat4all", "database", "postgresql", "performance"],
   "timezone": "browser",
   "editable": true,
@@ -125,96 +125,85 @@
     },
     {
       "id": 4,
-      "title": "Query Execution Time (P50, P95, P99)",
+      "title": "Transactions per Second (TPS)",
+      "description": "Commits vs Rollbacks (Replaces Latency P95 which requires app instrumentation)",
       "type": "graph",
       "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, rate(db_query_duration_seconds_bucket{service=\"chat4all-api\"}[5m]))",
-          "legendFormat": "P50",
+          "expr": "rate(pg_stat_database_xact_commit{datname=\"chat4all\"}[5m])",
+          "legendFormat": "Commits/sec",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, rate(db_query_duration_seconds_bucket{service=\"chat4all-api\"}[5m]))",
-          "legendFormat": "P95",
+          "expr": "rate(pg_stat_database_xact_rollback{datname=\"chat4all\"}[5m])",
+          "legendFormat": "Rollbacks/sec",
           "refId": "B"
-        },
-        {
-          "expr": "histogram_quantile(0.99, rate(db_query_duration_seconds_bucket{service=\"chat4all-api\"}[5m]))",
-          "legendFormat": "P99",
-          "refId": "C"
         }
       ],
       "yaxes": [
-        {"format": "s", "label": "Query Time", "logBase": 1},
+        {"format": "ops", "label": "TPS"},
         {"format": "short"}
-      ],
-      "alert": {
-        "name": "High Database Query Latency",
-        "conditions": [
-          {
-            "evaluator": {"params": [0.5], "type": "gt"},
-            "operator": {"type": "and"},
-            "query": {"params": ["B", "10m", "now"]},
-            "reducer": {"params": [], "type": "avg"},
-            "type": "query"
-          }
-        ],
-        "executionErrorState": "alerting",
-        "frequency": "1m",
-        "handler": 1,
-        "message": "Database P95 query latency exceeding 500ms",
-        "noDataState": "no_data"
-      }
+      ]
     },
     {
       "id": 5,
-      "title": "Query Rate (queries/sec)",
+      "title": "Rows Fetched vs Returned",
       "type": "graph",
       "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
       "targets": [
         {
-          "expr": "rate(db_queries_total{service=\"chat4all-api\"}[5m])",
-          "legendFormat": "{{operation}}",
+          "expr": "rate(pg_stat_database_tup_fetched{datname=\"chat4all\"}[5m])",
+          "legendFormat": "Rows Fetched",
           "refId": "A"
+        },
+        {
+          "expr": "rate(pg_stat_database_tup_returned{datname=\"chat4all\"}[5m])",
+          "legendFormat": "Rows Returned",
+          "refId": "B"
         }
       ],
       "yaxes": [
-        {"format": "ops", "label": "Queries/sec"},
+        {"format": "ops", "label": "Rows/sec"},
         {"format": "short"}
       ]
     },
     {
       "id": 6,
-      "title": "Transaction Duration (P95)",
+      "title": "Max Transaction Duration",
       "type": "graph",
       "gridPos": {"x": 0, "y": 16, "w": 12, "h": 6},
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, rate(db_transaction_duration_seconds_bucket{service=\"chat4all-api\"}[5m]))",
-          "legendFormat": "P95 Transaction Time",
+          "expr": "pg_stat_activity_max_tx_duration{datname=\"chat4all\"}",
+          "legendFormat": "Max Tx Duration",
           "refId": "A"
         }
       ],
       "yaxes": [
-        {"format": "s", "label": "Transaction Time"},
+        {"format": "s", "label": "Duration"},
         {"format": "short"}
       ]
     },
     {
       "id": 7,
-      "title": "Database Errors",
+      "title": "Database Conflicts & Deadlocks",
       "type": "graph",
       "gridPos": {"x": 12, "y": 16, "w": 12, "h": 6},
       "targets": [
         {
-          "expr": "rate(db_errors_total{service=\"chat4all-api\"}[5m])",
-          "legendFormat": "{{error_type}}",
+          "expr": "increase(pg_stat_database_conflicts{datname=\"chat4all\"}[5m])",
+          "legendFormat": "Conflicts",
           "refId": "A"
+        },
+        {
+          "expr": "increase(pg_stat_database_deadlocks{datname=\"chat4all\"}[5m])",
+          "legendFormat": "Deadlocks",
+          "refId": "B"
         }
       ],
       "yaxes": [
-        {"format": "ops", "label": "Errors/sec"},
+        {"format": "ops", "label": "Events"},
         {"format": "short"}
       ]
     },
@@ -325,18 +314,18 @@
     },
     {
       "id": 11,
-      "title": "Active Queries",
+      "title": "Active Queries (Sum)",
       "type": "stat",
       "gridPos": {"x": 0, "y": 28, "w": 6, "h": 4},
       "targets": [
         {
-          "expr": "pg_stat_activity_count",
+          "expr": "sum(pg_stat_activity_count{datname=\"chat4all\"})",
           "refId": "A"
         }
       ],
       "options": {
         "colorMode": "background",
-        "graphMode": "area",
+        "graphMode": "none",
         "orientation": "horizontal",
         "reduceOptions": {
           "calcs": ["lastNotNull"],
@@ -408,7 +397,7 @@
       ],
       "options": {
         "colorMode": "background",
-        "graphMode": "area",
+        "graphMode": "none",
         "orientation": "horizontal",
         "reduceOptions": {
           "calcs": ["lastNotNull"],
@@ -461,33 +450,6 @@
           }
         }
       }
-    },
-    {
-      "id": 15,
-      "title": "Top 5 Slowest Queries",
-      "type": "table",
-      "gridPos": {"x": 0, "y": 32, "w": 24, "h": 6},
-      "targets": [
-        {
-          "expr": "topk(5, max by (query_hash) (rate(db_query_duration_seconds_sum{service=\"chat4all-api\"}[5m]) / rate(db_query_duration_seconds_count{service=\"chat4all-api\"}[5m])))",
-          "format": "table",
-          "instant": true,
-          "refId": "A"
-        }
-      ],
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {"Time": true, "__name__": true, "instance": true, "job": true},
-            "indexByName": {},
-            "renameByName": {
-              "query_hash": "Query Hash",
-              "Value": "Avg Duration (s)"
-            }
-          }
-        }
-      ]
     }
   ]
 }

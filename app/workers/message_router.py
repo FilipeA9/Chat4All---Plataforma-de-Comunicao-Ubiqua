@@ -8,6 +8,7 @@ import json
 import logging
 import signal
 import sys
+from prometheus_client import start_http_server
 from kafka import KafkaConsumer, KafkaProducer
 from kafka.errors import KafkaError
 from core.config import settings
@@ -176,6 +177,9 @@ def main():
     signal.signal(signal.SIGTERM, signal_handler)
     
     logger.info("Message Router Worker starting...")
+
+    print("Iniciando servidor de métricas Prometheus na porta 8000...")
+    start_http_server(8000)
     
     try:
         # Create Kafka consumer with manual offset commit for message ordering
