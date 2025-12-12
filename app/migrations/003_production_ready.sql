@@ -267,6 +267,7 @@ BEGIN
 END $$;
 
 -- Materialized View for Efficient Conversation Listing
+CREATE MATERIALIZED VIEW conversation_view AS
 SELECT
     c.id AS conversation_id,
     cm.user_id,
@@ -282,10 +283,8 @@ SELECT
     COALESCE(unread.unread_count, 0::bigint) AS unread_count,
     -- NOVA COLUNA: Lista de usernames dos participantes
     participants.participant_usernames
-    
 FROM conversations c
 JOIN conversation_members cm ON c.id = cm.conversation_id
-
 -- 1. LATERAL JOIN para obter a última mensagem (m_last) - Sem alteração
 LEFT JOIN LATERAL (
     SELECT 
@@ -298,9 +297,7 @@ LEFT JOIN LATERAL (
     ORDER BY messages.created_at DESC
     LIMIT 1
 ) m_last ON true
-
 LEFT JOIN users u_sender ON m_last.sender_id = u_sender.id
-
 -- 2. LATERAL JOIN para obter a contagem de não lidas (unread) - Sem alteração
 LEFT JOIN LATERAL (
     SELECT count(*) AS unread_count
@@ -309,7 +306,6 @@ LEFT JOIN LATERAL (
         AND m.sender_id <> cm.user_id
         AND m.status <> 'READ'::message_status
 ) unread ON true
-
 -- 3. NOVO LATERAL JOIN para listar todos os participantes da conversa
 LEFT JOIN LATERAL (
     SELECT 
@@ -317,7 +313,7 @@ LEFT JOIN LATERAL (
     FROM conversation_members sub_cm
     JOIN users u ON sub_cm.user_id = u.id
     WHERE sub_cm.conversation_id = c.id
-) participants ON true
+) participants ON true;
 
 CREATE UNIQUE INDEX idx_conversation_view_pk ON conversation_view(conversation_id, user_id);
 CREATE INDEX idx_conversation_view_user_timestamp ON conversation_view(user_id, last_message_timestamp DESC NULLS LAST);
